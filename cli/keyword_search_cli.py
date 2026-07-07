@@ -1,6 +1,26 @@
 import argparse
 import json
 import sys
+import string
+
+def preprocess_text(text: str) -> list[str]:
+    translator = str.maketrans("", "", string.punctuation)
+    clean_text = text.lower().translate(translator)
+    return clean_text.split()
+
+def load_stopwords(filepath: str) -> set[str]:
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            words = f.read().splitlines()
+    except FileNotFoundError:
+        print(f"Warning: Data file '{filepath}' not found.", file=sys.stderr)
+        return set()
+    
+    stop_words = set()
+    for word in words:
+        for token in preprocess_text(word):
+            stop_words.add(token)
+    return stop_words
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Keyword Search CLI")
@@ -12,6 +32,7 @@ def main() -> None:
     search_parser.add_argument("num_results", type=int, nargs="?", default=5, help="Number of results to return")
 
     args = parser.parse_args()
+    stop_words = load_stopwords("data/stopwords.txt")
 
     match args.command:
         case "search":
@@ -34,15 +55,12 @@ def main() -> None:
                 movies = []
 
             results = []
-            import string
-            query_clean = args.query.lower().translate(str.maketrans("", "", string.punctuation))
-            query_tokens = query_clean.split()
+            query_tokens = [tok for tok in preprocess_text(args.query) if tok not in stop_words]
             for movie in movies:
                 if not isinstance(movie, dict):
                     continue
                 title = movie.get("title", "")
-                title_clean = title.lower().translate(str.maketrans("", "", string.punctuation))
-                title_tokens = title_clean.split()
+                title_tokens = [tok for tok in preprocess_text(title) if tok not in stop_words]
                 
                 # Count how many query tokens appear in any title token
                 score = sum(1 for q_tok in query_tokens if any(q_tok in t_tok for t_tok in title_tokens))
