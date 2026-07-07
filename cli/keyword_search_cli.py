@@ -8,6 +8,9 @@ stemmer = PorterStemmer()
 
 import pickle
 
+# --- Inverted Index and Document Map ---
+# @attribute index: maps a term to a list of document IDs
+# @attribute doc_map: maps a document ID to its content
 class InvertedIndex:
     index: dict[str, list[str]]
     doc_map: dict[str, str]
@@ -22,27 +25,37 @@ class InvertedIndex:
             for doc in documents:
                 self.__add_document(str(len(self.doc_map)), doc)
     
+    # @function __add_document: add a document to the inverted index
+    # @return: None 
     def __add_document(self, doc_id: str, doc: str) -> None:
-        self.doc_map[doc_id] = doc
+        parts = doc.split("\n", 1)
+        title = parts[0]
+        self.doc_map[doc_id] = title
         for token in preprocess_text(doc):
             if token not in self.index:
                 self.index[token] = []
             if doc_id not in self.index[token]:
                 self.index[token].append(doc_id)
     
+    # @function get_documents: get documents for a term
+    # @return: list of document IDs
     def get_documents(self, term: str) -> list[str]:
         terms = preprocess_text(term)
         if not terms:
             return []
         return self.index.get(terms[0], [])
 
+    # @function search: search for documents containing the query
+    # @return: list of document IDs 
     def search(self, query: str) -> list[str]:
         query_tokens = preprocess_text(query)
         results = []
         for token in query_tokens:
             results.extend(self.get_documents(token))
         return results
-
+    
+    # @function save: save the inverted index and document map to files
+    # @return: None 
     def save(self, directory: str) -> None:
         import os
         os.makedirs(directory, exist_ok=True)
@@ -51,11 +64,31 @@ class InvertedIndex:
         with open(os.path.join(directory, "docmap.pkl"), "wb") as f:
             pickle.dump(self.doc_map, f)
 
+    # @function load: load the inverted index and document map from files
+    # @return: None
+    def load(self, directory: str) -> None:
+        import os
+        try:
+            with open(os.path.join(directory, "index.pkl"), "rb") as f:
+                self.index = pickle.load(f)
+            with open(os.path.join(directory, "docmap.pkl"), "rb") as f:
+                self.doc_map = pickle.load(f)
+        except FileNotFoundError:
+            print(f"Error: Index files not found in '{directory}'.", file=sys.stderr)
+            sys.exit(1)
+
+
+# --- Helper Functions ---
+# @function preprocess_text: preprocess the input text
+# @return: list of tokens
 def preprocess_text(text: str) -> list[str]:
     translator = str.maketrans("", "", string.punctuation)
     clean_text = text.lower().translate(translator)
     return [stemmer.stem(tok) for tok in clean_text.split()]
 
+
+# @function load_stopwords: load stopwords from a file
+# @return: set of stopwords
 def load_stopwords(filepath: str) -> set[str]:
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -70,6 +103,9 @@ def load_stopwords(filepath: str) -> set[str]:
             stop_words.add(token)
     return stop_words
 
+
+# --- Commands ---
+# @function build_command: build and save the inverted index
 def build_command(data_file: str, index_dir: str) -> None:
     try:
         with open(data_file, "r", encoding="utf-8") as f:
@@ -88,12 +124,16 @@ def build_command(data_file: str, index_dir: str) -> None:
     else:
         movies = []
 
-    documents = {str(movie["id"]): movie.get("description", "") for movie in movies if "id" in movie}
+    documents = {
+        str(movie["id"]): f"{movie.get('title', '')}\n{movie.get('description', '')}"
+        for movie in movies
+        if "id" in movie
+    }
     inverted_index = InvertedIndex(documents)
     inverted_index.save(index_dir)
-    
-    docs = inverted_index.get_documents("merida")
-    print(f"First document for token 'merida' = {docs[0]}")
+
+
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Keyword Search CLI")
@@ -101,7 +141,7 @@ def main() -> None:
 
     search_parser = subparsers.add_parser("search", help="Search movies using keywords")
     search_parser.add_argument("query", type=str, help="Search query")
-    search_parser.add_argument("data_file", type=str, nargs="?", default="data/movies.json", help="Path to data file")
+    search_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
     search_parser.add_argument("num_results", type=int, nargs="?", default=5, help="Number of results to return")
 
     build_parser = subparsers.add_parser("build", help="Build and save the inverted index")
@@ -114,41 +154,25 @@ def main() -> None:
     match args.command:
         case "search":
             print(f"Searching for: {args.query}")
-            try:
-                with open(args.data_file, "r", encoding="utf-8") as f:
-                    movies_data = json.load(f)
-            except FileNotFoundError:
-                print(f"Error: Data file '{args.data_file}' not found.", file=sys.stderr)
-                sys.exit(1)
-            except json.JSONDecodeError:
-                print(f"Error: Data file '{args.data_file}' is not valid JSON.", file=sys.stderr)
-                sys.exit(1)
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
 
-            if isinstance(movies_data, dict):
-                movies = movies_data.get("movies", [])
-            elif isinstance(movies_data, list):
-                movies = movies_data
-            else:
-                movies = []
-
-            results = []
+            results = {}
             query_tokens = [tok for tok in preprocess_text(args.query) if tok not in stop_words]
-            for movie in movies:
-                if not isinstance(movie, dict):
-                    continue
-                title = movie.get("title", "")
-                title_tokens = [tok for tok in preprocess_text(title) if tok not in stop_words]
-                
-                # Count how many query tokens appear in any title token
-                score = sum(1 for q_tok in query_tokens if any(q_tok in t_tok for t_tok in title_tokens))
-                if score > 0:
-                    results.append((movie, score))
+            for q_tok in query_tokens:
+                matched_docs = set()
+                for term in inverted_index.index:
+                    if q_tok in term:
+                        matched_docs.update(inverted_index.index[term])
+                for doc_id in matched_docs:
+                    results[doc_id] = results.get(doc_id, 0) + 1
 
-            # Sort by score in descending order (stable sort preserves original order for ties)
-            results.sort(key=lambda x: x[1], reverse=True)
+            # Sort by score in descending order, and then by doc_id in ascending order for ties
+            sorted_results = sorted(results.items(), key=lambda x: (x[1], -int(x[0])), reverse=True)
 
-            for movie, score in results[:args.num_results]:
-                print(movie.get("title"))
+            for doc_id, score in sorted_results[:args.num_results]:
+                title = inverted_index.doc_map.get(doc_id, "Unknown Title")
+                print(f"Document ID: {doc_id}, Title: {title}")
         case "build":
             build_command(args.data_file, args.index_dir)
         case _:
