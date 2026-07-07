@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 import string
+import collections
 from nltk.stem import PorterStemmer
 
 stemmer = PorterStemmer()
@@ -14,10 +15,12 @@ import pickle
 class InvertedIndex:
     index: dict[str, list[str]]
     doc_map: dict[str, str]
+    term_frequencies: dict[str, collections.Counter]
 
     def __init__(self, documents: list[str] | dict[str, str]):
         self.index = {}
         self.doc_map = {}
+        self.term_frequencies = collections.defaultdict(collections.Counter)
         if isinstance(documents, dict):
             for doc_id, doc in documents.items():
                 self.__add_document(doc_id, doc)
@@ -25,6 +28,13 @@ class InvertedIndex:
             for doc in documents:
                 self.__add_document(str(len(self.doc_map)), doc)
     
+    # @function get_tf: get the term frequency for a term in a document
+    # @return: int
+    def get_tf(self, doc_id: str, term: str) -> int:
+        if doc_id not in self.term_frequencies:
+            return 0
+        return self.term_frequencies[doc_id].get(term, 0)
+
     # @function __add_document: add a document to the inverted index
     # @return: None 
     def __add_document(self, doc_id: str, doc: str) -> None:
@@ -36,7 +46,8 @@ class InvertedIndex:
                 self.index[token] = []
             if doc_id not in self.index[token]:
                 self.index[token].append(doc_id)
-    
+            self.term_frequencies[doc_id][token] += 1
+
     # @function get_documents: get documents for a term
     # @return: list of document IDs
     def get_documents(self, term: str) -> list[str]:
@@ -63,6 +74,8 @@ class InvertedIndex:
             pickle.dump(self.index, f)
         with open(os.path.join(directory, "docmap.pkl"), "wb") as f:
             pickle.dump(self.doc_map, f)
+        with open(os.path.join(directory, "term_frequencies.pkl"), "wb") as f:
+            pickle.dump(self.term_frequencies, f)
 
     # @function load: load the inverted index and document map from files
     # @return: None
@@ -73,6 +86,8 @@ class InvertedIndex:
                 self.index = pickle.load(f)
             with open(os.path.join(directory, "docmap.pkl"), "rb") as f:
                 self.doc_map = pickle.load(f)
+            with open(os.path.join(directory, "term_frequencies.pkl"), "rb") as f:
+                self.term_frequencies = pickle.load(f)
         except FileNotFoundError:
             print(f"Error: Index files not found in '{directory}'.", file=sys.stderr)
             sys.exit(1)
@@ -85,6 +100,13 @@ def preprocess_text(text: str) -> list[str]:
     translator = str.maketrans("", "", string.punctuation)
     clean_text = text.lower().translate(translator)
     return [stemmer.stem(tok) for tok in clean_text.split()]
+
+
+# @function tokenize_term: tokenize a single search term
+# @return: str
+def tokenize_term(term: str) -> str:
+    tokens = preprocess_text(term)
+    return tokens[0] if tokens else ""
 
 
 # @function load_stopwords: load stopwords from a file
@@ -148,6 +170,11 @@ def main() -> None:
     build_parser.add_argument("data_file", type=str, nargs="?", default="data/movies.json", help="Path to data file")
     build_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory to save index files")
 
+    tf_parser = subparsers.add_parser("tf", help="Get term frequency of a term in a document")
+    tf_parser.add_argument("doc_id", type=str, help="Document ID")
+    tf_parser.add_argument("term", type=str, help="Search term")
+    tf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
+
     args = parser.parse_args()
     stop_words = load_stopwords("data/stopwords.txt")
 
@@ -175,6 +202,12 @@ def main() -> None:
                 print(f"Document ID: {doc_id}, Title: {title}")
         case "build":
             build_command(args.data_file, args.index_dir)
+        case "tf":
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
+            token = tokenize_term(args.term)
+            tf = inverted_index.get_tf(args.doc_id, token)
+            print(tf)
         case _:
             parser.print_help()
 
