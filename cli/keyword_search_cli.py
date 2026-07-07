@@ -2,11 +2,14 @@ import argparse
 import json
 import sys
 import string
+from nltk.stem import PorterStemmer
+
+stemmer = PorterStemmer()
 
 def preprocess_text(text: str) -> list[str]:
     translator = str.maketrans("", "", string.punctuation)
     clean_text = text.lower().translate(translator)
-    return clean_text.split()
+    return [stemmer.stem(tok) for tok in clean_text.split()]
 
 def load_stopwords(filepath: str) -> set[str]:
     try:
