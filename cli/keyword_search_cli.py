@@ -34,15 +34,25 @@ def main() -> None:
                 movies = []
 
             results = []
-            query_lower = args.query.lower()
+            import string
+            query_clean = args.query.lower().translate(str.maketrans("", "", string.punctuation))
+            query_tokens = query_clean.split()
             for movie in movies:
                 if not isinstance(movie, dict):
                     continue
                 title = movie.get("title", "")
-                if query_lower in title.lower():
-                    results.append(movie)
+                title_clean = title.lower().translate(str.maketrans("", "", string.punctuation))
+                title_tokens = title_clean.split()
+                
+                # Count how many query tokens appear in any title token
+                score = sum(1 for q_tok in query_tokens if any(q_tok in t_tok for t_tok in title_tokens))
+                if score > 0:
+                    results.append((movie, score))
 
-            for movie in results[:args.num_results]:
+            # Sort by score in descending order (stable sort preserves original order for ties)
+            results.sort(key=lambda x: x[1], reverse=True)
+
+            for movie, score in results[:args.num_results]:
                 print(movie.get("title"))
         case _:
             parser.print_help()
