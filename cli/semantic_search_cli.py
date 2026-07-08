@@ -24,6 +24,7 @@ def main() -> None:
     chunk_parser = subparsers.add_parser("chunk", help="Chunk a document into smaller documents")
     chunk_parser.add_argument("text", help="Text to chunk")
     chunk_parser.add_argument("--chunk-size", type=int, default=200, help="Maximum number of tokens per chunk")
+    chunk_parser.add_argument("--overlap", type=int, default=50, help="Number of tokens to overlap between chunks" )
     
     args = parser.parse_args()
 
@@ -64,16 +65,16 @@ def main() -> None:
                 title = full_doc.split("\n", 1)[0]
                 print(f"  {title}")
         case "chunk":
-            chunk_document(args.text, args.chunk_size)
+                chunk_document(args.text, args.chunk_size, args.overlap)
         case _:
             parser.print_help()
             
-def chunk_document(text, max_tokens: int = 200):
+def chunk_document(text: str, max_tokens: int = 200, overlap: int = 50):
     if max_tokens <= 0:
         max_tokens = 1
     words = text.split()
     chunks = []
-    for i in range(0, len(words), max_tokens):
+    for i in range(0, len(words), max_tokens - overlap):
         chunk = " ".join(words[i:i + max_tokens])
         chunks.append(chunk)
     
