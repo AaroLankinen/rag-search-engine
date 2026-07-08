@@ -4,7 +4,7 @@ import tempfile
 import numpy as np
 from unittest.mock import patch, MagicMock
 from cli.lib.semantic_search import SemanticSearch, cosine_similarity, verify_model, embed_text, embed_query
-from cli.semantic_search_cli import chunk_document
+from cli.semantic_search_cli import chunk_document, semantic_chunk_document
 
 class TestSemanticSearch(unittest.TestCase):
     def setUp(self):
@@ -143,3 +143,18 @@ class TestSemanticSearch(unittest.TestCase):
         self.assertEqual(output[1], "1. This is a test text")
         self.assertEqual(output[2], "2. with more than ten words")
         self.assertEqual(output[3], "3. to see how chunking works")
+
+    @patch('sys.stdout')
+    @patch('cli.semantic_search_cli.cosine_similarity')
+    def test_semantic_chunk_document(self, mock_cosine_sim, mock_stdout):
+        from io import StringIO
+        mock_cosine_sim.return_value = 0.9  # always similar, only size split is triggered
+        captured = StringIO()
+        with patch('sys.stdout', new=captured):
+            text = "This is the first sentence. This is the second sentence. This is the third sentence. This is the fourth sentence. This is the fifth sentence."
+            semantic_chunk_document(text, max_tokens=3, overlap=0, threshold=0.5)
+            
+        output = captured.getvalue().strip().split('\n')
+        self.assertEqual(output[0], "Semantically chunking 141 characters")
+        self.assertEqual(output[1], "1. This is the first sentence. This is the second sentence. This is the third sentence.")
+        self.assertEqual(output[2], "2. This is the fourth sentence. This is the fifth sentence.")
