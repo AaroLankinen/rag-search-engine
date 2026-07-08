@@ -7,6 +7,11 @@ import collections
 import math
 from nltk.stem import PorterStemmer
 
+try:
+    from cli.constants import K1, B
+except ImportError:
+    from constants import K1, B
+
 stemmer = PorterStemmer()
 
 import pickle
@@ -46,18 +51,16 @@ class InvertedIndex:
 
     # @function get_bm25_tf: get the Okapi BM25 TF value for a term
     # @return: float
-    def get_bm25_tf(self, doc_id: str, term: str, k1: float = 1.5, b: float = 0.75) -> float:
+    def get_bm25_tf(self, doc_id: str, term: str, k1: float = K1, b: float = B) -> float:
         doc_len = len(self.doc_map[doc_id].split())
         avg_doc_len = sum(len(doc.split()) for doc in self.doc_map.values()) / len(self.doc_map)
         tf = self.get_tf(doc_id, term)
-        return (tf * (k1 + 1)) / (tf + k1)    
+        return (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / avg_doc_len))    
 
     # @function __add_document: add a document to the inverted index
     # @return: None 
     def __add_document(self, doc_id: str, doc: str) -> None:
-        parts = doc.split("\n", 1)
-        title = parts[0]
-        self.doc_map[doc_id] = title
+        self.doc_map[doc_id] = doc
         for token in preprocess_text(doc):
             if token not in self.index:
                 self.index[token] = []
@@ -208,7 +211,7 @@ def main() -> None:
     bm25tf_parser = subparsers.add_parser("bm25tf", help="Get Okapi BM25 TF value of a term in a document")
     bm25tf_parser.add_argument("doc_id", type=str, help="Document ID")
     bm25tf_parser.add_argument("term", type=str, help="Search term")
-    bm25tf_parser.add_argument("k1", type=float, nargs="?", default=1.5, help="BM25 k1 parameter")
+    bm25tf_parser.add_argument("k1", type=float, nargs="?", default=K1, help="BM25 k1 parameter")
     bm25tf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
 
     args = parser.parse_args()
@@ -234,7 +237,8 @@ def main() -> None:
             sorted_results = sorted(results.items(), key=lambda x: (x[1], -int(x[0])), reverse=True)
 
             for doc_id, score in sorted_results[:args.num_results]:
-                title = inverted_index.doc_map.get(doc_id, "Unknown Title")
+                full_doc = inverted_index.doc_map.get(doc_id, "Unknown Title")
+                title = full_doc.split("\n", 1)[0]
                 print(f"Document ID: {doc_id}, Title: {title}")
         case "build":
             build_command(args.data_file, args.index_dir)
