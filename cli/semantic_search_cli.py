@@ -32,8 +32,17 @@ def main() -> None:
             embed_query(args.query)
         case "search":
             import json
-            with open(args.data_file, "r", encoding="utf-8") as f:
-                movies_data = json.load(f)
+            import sys
+            try:
+                with open(args.data_file, "r", encoding="utf-8") as f:
+                    movies_data = json.load(f)
+            except FileNotFoundError:
+                print(f"Error: Data file '{args.data_file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            except json.JSONDecodeError:
+                print(f"Error: Data file '{args.data_file}' is not valid JSON.", file=sys.stderr)
+                sys.exit(1)
+
             movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
             documents = {
                 str(movie["id"]): f"{movie.get('title', '')}\n{movie.get('description', '')}"

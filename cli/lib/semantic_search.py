@@ -10,7 +10,7 @@ class SemanticSearch:
         self.documents = None
         self.document_map = {}
     
-    def build_embeddings(self, documents, save_dir: str):
+    def build_embeddings(self, documents, save_dir: str = "cache"):
         import pickle
         self.documents = documents
         self.embeddings = self.model.encode(list(documents.values()), convert_to_numpy=True, show_progress_bar=True)
@@ -20,7 +20,7 @@ class SemanticSearch:
             pickle.dump(self.document_map, f)
         return self.embeddings
 
-    def load_or_create_embeddings(self, documents, save_dir: str):
+    def load_or_create_embeddings(self, documents, save_dir: str = "cache"):
         import pickle
         try:
             self.embeddings = np.load(os.path.join(save_dir, "embeddings.npy"))
@@ -33,9 +33,12 @@ class SemanticSearch:
         return self.model.encode(text, convert_to_numpy=True)
 
     def search(self, query: str, limit: int = 10) -> list[str]:
+        if self.embeddings is None or len(self.embeddings) == 0:
+            return []
         query_embedding = self.generate_embedding(query)
         similarities = util.cos_sim(query_embedding, self.embeddings)[0]
-        top_k = torch.topk(similarities, k=limit)
+        k = min(limit, len(self.embeddings))
+        top_k = torch.topk(similarities, k=k)
         results = []
         for score, idx in zip(top_k.values, top_k.indices):
             results.append(self.document_map[idx.item()])
@@ -63,21 +66,39 @@ def embed_query(query: str):
 
 def semantic_search(query: str, limit: int = 10):
     semantic_search = SemanticSearch()
-    semantic_search.build_embeddings({
-        "10": "The quick brown fox jumps over the lazy dog",
-        "20": "Dogs are running and jumping in the park",
-        "30": "Foxes love running fast"
-    })
-    return semantic_search.search(query, limit)
-
-def verify_embeddings(save_dir: str = "cache"):
     import json
     data_file = "data/movies.json"
     try:
         with open(data_file, "r", encoding="utf-8") as f:
             movies_data = json.load(f)
+        movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
+        documents = {
+            str(movie["id"]): f"{movie.get('title', '')}\n{movie.get('description', '')}"
+            for movie in movies
+            if "id" in movie
+        }
     except FileNotFoundError:
-        movies_data = {"movies": []}
+        documents = {
+            "10": "The quick brown fox jumps over the lazy dog",
+            "20": "Dogs are running and jumping in the park",
+            "30": "Foxes love running fast"
+        }
+    semantic_search.load_or_create_embeddings(documents)
+    return semantic_search.search(query, limit)
+
+def verify_embeddings(save_dir: str = "cache"):
+    import json
+    import sys
+    data_file = "data/movies.json"
+    try:
+        with open(data_file, "r", encoding="utf-8") as f:
+            movies_data = json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Data file '{data_file}' not found.", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print(f"Error: Data file '{data_file}' is not valid JSON.", file=sys.stderr)
+        sys.exit(1)
     
     movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
     documents = {
