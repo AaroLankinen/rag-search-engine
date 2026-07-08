@@ -28,6 +28,7 @@ class InvertedIndex:
         self.index = {}
         self.doc_map = {}
         self.term_frequencies = collections.defaultdict(collections.Counter)
+        self._avg_doc_len = None
         if isinstance(documents, dict):
             for doc_id, doc in documents.items():
                 self.__add_document(doc_id, doc)
@@ -49,13 +50,39 @@ class InvertedIndex:
         term_match_doc_count = len(self.index.get(term, []))
         return math.log((total_documents - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1)
 
+    @property
+    def avg_doc_len(self) -> float:
+        if self._avg_doc_len is None:
+            if not self.doc_map:
+                return 0.0
+            self._avg_doc_len = sum(len(doc.split()) for doc in self.doc_map.values()) / len(self.doc_map)
+        return self._avg_doc_len
+
     # @function get_bm25_tf: get the Okapi BM25 TF value for a term
     # @return: float
     def get_bm25_tf(self, doc_id: str, term: str, k1: float = K1, b: float = B) -> float:
         doc_len = len(self.doc_map[doc_id].split())
-        avg_doc_len = sum(len(doc.split()) for doc in self.doc_map.values()) / len(self.doc_map)
         tf = self.get_tf(doc_id, term)
-        return (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / avg_doc_len))    
+        return (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / self.avg_doc_len))    
+
+    # @function bm25: get the Okapi BM25 score for a term in a document
+    # @return: float
+    def bm25(self, doc_id: str, term: str, k1: float = K1, b: float = B) -> float:
+        score = 0
+        for token in preprocess_text(term):
+            score += self.get_bm25_tf(doc_id, token, k1, b) * self.get_bm25_idf(token)
+        return score    
+
+    # @function bm25_search: search for documents containing the query
+    # @return: list of document IDs 
+    def bm25_search(self, query: str, limit: int = 10) -> list[str]:
+        query_tokens = preprocess_text(query)
+        results = {}
+        for token in query_tokens:
+            for doc_id in self.get_documents(token):
+                results[doc_id] = self.bm25(doc_id, query)
+        sorted_results = sorted(results.items(), key=lambda x: (x[1], -int(x[0])), reverse=True)
+        return [doc_id for doc_id, score in sorted_results[:limit]] 
 
     # @function __add_document: add a document to the inverted index
     # @return: None 
@@ -108,6 +135,7 @@ class InvertedIndex:
                 self.doc_map = pickle.load(f)
             with open(os.path.join(directory, "term_frequencies.pkl"), "rb") as f:
                 self.term_frequencies = pickle.load(f)
+            self._avg_doc_len = None
         except FileNotFoundError:
             print(f"Error: Index files not found in '{directory}'.", file=sys.stderr)
             sys.exit(1)
@@ -214,6 +242,11 @@ def main() -> None:
     bm25tf_parser.add_argument("k1", type=float, nargs="?", default=K1, help="BM25 k1 parameter")
     bm25tf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
 
+    bm25search_parser = subparsers.add_parser("bm25search", help="Perform Okapi BM25 search")
+    bm25search_parser.add_argument("query", type=str, help="Search query")
+    bm25search_parser.add_argument("--limit", type=int, default=5, help="Maximum number of results to return")
+    bm25search_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
+
     args = parser.parse_args()
     stop_words = load_stopwords("data/stopwords.txt")
 
@@ -280,6 +313,15 @@ def main() -> None:
             token = tokenize_term(args.term)
             bm25tf = inverted_index.get_bm25_tf(args.doc_id, token, k1=args.k1)
             print(f"BM25 TF of '{args.term}' in document '{args.doc_id}': {bm25tf:.2f}")
+        case "bm25search":
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
+            doc_ids = inverted_index.bm25_search(args.query, limit=args.limit)
+            for i, doc_id in enumerate(doc_ids, start=1):
+                full_doc = inverted_index.doc_map.get(doc_id, "Unknown Title")
+                title = full_doc.split("\n", 1)[0]
+                score = inverted_index.bm25(doc_id, args.query)
+                print(f"{i}. ({doc_id}) {title} - Score: {score:.2f}")
         case _:
             parser.print_help()
 
