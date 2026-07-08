@@ -11,17 +11,21 @@ class SemanticSearch:
         self.document_map = {}
     
     def build_embeddings(self, documents, save_dir: str):
+        import pickle
         self.documents = documents
         self.embeddings = self.model.encode(list(documents.values()), convert_to_numpy=True, show_progress_bar=True)
         self.document_map = {i: doc for i, doc in enumerate(documents.keys())}
         np.save(os.path.join(save_dir, "embeddings.npy"), self.embeddings)
-        np.save(os.path.join(save_dir, "document_map.pkl"), self.document_map)
+        with open(os.path.join(save_dir, "document_map.pkl"), "wb") as f:
+            pickle.dump(self.document_map, f)
         return self.embeddings
 
     def load_or_create_embeddings(self, documents, save_dir: str):
+        import pickle
         try:
             self.embeddings = np.load(os.path.join(save_dir, "embeddings.npy"))
-            self.document_map = np.load(os.path.join(save_dir, "document_map.pkl"))
+            with open(os.path.join(save_dir, "document_map.pkl"), "rb") as f:
+                self.document_map = pickle.load(f)
         except FileNotFoundError:
             self.build_embeddings(documents, save_dir)
 
@@ -34,7 +38,7 @@ class SemanticSearch:
         top_k = torch.topk(similarities, k=limit)
         results = []
         for score, idx in zip(top_k.values, top_k.indices):
-            results.append(list(self.documents.keys())[idx.item()])
+            results.append(self.document_map[idx.item()])
         return results
     
 
@@ -85,3 +89,14 @@ def verify_embeddings(save_dir: str = "cache"):
     semantic_search = SemanticSearch()
     semantic_search.load_or_create_embeddings(documents, save_dir)
     print(f"{semantic_search.embeddings.shape[0]} vectors in {semantic_search.embeddings.shape[1]} dimensions")
+
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    dot_product = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    return dot_product / (norm1 * norm2)
+
