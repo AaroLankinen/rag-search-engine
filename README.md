@@ -1,32 +1,36 @@
-# RAG Search Engine: Keyword Retrieval CLI
+# RAG Search Engine: Sparse & Dense Retrieval CLI
 
-A lightweight, high-performance local keyword search engine written in Python. It indexes textual documents and supports document retrieval using both Boolean Term Frequency / TF-IDF scoring and the industry-standard **Okapi BM25** ranking algorithm.
+A lightweight, high-performance local keyword and semantic search engine written in Python. It indexes textual documents and supports both sparse document retrieval (Boolean, TF-IDF, Okapi BM25) and dense semantic retrieval (SentenceTransformers embeddings, Cosine Similarity matching).
 
-Designed to serve as the sparse retrieval component of a **RAG (Retrieval-Augmented Generation)** pipeline, this engine operates offline with no external service dependencies.
+Designed to serve as the retrieval component of a **RAG (Retrieval-Augmented Generation)** pipeline, this engine operates offline with no external service dependencies.
 
 ---
 
 ## Features
 
 - **Okapi BM25 Ranking**: State-of-the-art sparse keyword ranking based on term saturation and document length normalization.
+- **Dense Semantic Retrieval**: Neural semantic search using SentenceTransformer (`all-MiniLM-L6-v2`) dense vector representations.
 - **TF-IDF Diagnostics**: Commands to extract raw TF, IDF, and TF-IDF statistics for search terms across documents.
 - **Stemming & Text Normalization**: Automated case folding, punctuation stripping, and token stemming using the NLTK `PorterStemmer` pipeline.
+- **Vector & Index Caching**: Fast serialization of vector arrays and dictionary mappings using NumPy and Pickle to avoid model inference overhead.
 - **Stopwords Filtering**: Support for customizable stopword lists to improve retrieval quality by filtering out highly frequent but non-informative words.
-- **Fast Serialization**: Index data structures are fully serialized using `pickle` for instant loading during search operations.
 
 ---
 
 ## Installation
 
-This project is built using Python (version `>=3.13`) and requires [nltk](https://www.nltk.org/).
+This project is built using Python (version `>=3.13`) and requires [nltk](https://www.nltk.org/), [numpy](https://numpy.org/), [torch](https://pytorch.org/), and [sentence-transformers](https://sbert.net/).
 
 ### Using `uv` (Recommended)
 
-If you have `uv` installed, you can run commands directly without manual environment setup:
+If you have `uv` installed, you can run commands directly without manual environment setup (all packages are resolved automatically):
 
 ```bash
-# Install dependencies and run commands
+# Run keyword search help
 uv run cli/keyword_search_cli.py --help
+
+# Run semantic search help
+uv run cli/semantic_search_cli.py --help
 ```
 
 ### Using standard virtual environment
@@ -39,21 +43,24 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install -r pyproject.toml
+pip install -e .
 ```
 
 ---
 
 ## Quickstart
 
-Start by building the search index from the movie database, then perform your first search query:
+Start by building the search index, then run either keyword or semantic queries:
 
 ```bash
-# 1. Build the index from the default movies dataset
+# 1. Build the keyword search index from the default movies dataset
 uv run cli/keyword_search_cli.py build
 
 # 2. Perform a BM25 keyword search
 uv run cli/keyword_search_cli.py bm25search "blue avatar alien" --limit 3
+
+# 3. Perform a dense semantic search (downloads model and caches vector database on first run)
+uv run cli/semantic_search_cli.py search "funny bear movies" --limit 3
 ```
 
 ---
@@ -126,6 +133,37 @@ uv run cli/keyword_search_cli.py bm25idf <term> [index_dir]
 
 ---
 
+### Dense Semantic Search Operations
+
+Supported via `cli/semantic_search_cli.py`:
+
+#### `search`
+Searches the collection using dense vector representations and cosine similarity.
+```bash
+uv run cli/semantic_search_cli.py search "your search query" [--data_file DATA_FILE] [--save_dir SAVE_DIR] [--limit LIMIT]
+```
+- **`query`**: The query string to search for.
+- **`--data_file`** *(Optional, default: `data/movies.json`)*: Path to the movie dataset JSON.
+- **`--save_dir`** *(Optional, default: `cache`)*: Directory to load/save embeddings.
+- **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
+
+#### `verify_embeddings`
+Loads or builds embeddings for the entire collection to verify their count and dimensions.
+```bash
+uv run cli/semantic_search_cli.py verify_embeddings [save_dir]
+```
+- **`save_dir`** *(Optional, default: `cache`)*: Directory containing the embeddings cache.
+
+#### `verify` / `embed_text` / `embed_query`
+Helper commands to verify the local model and compute individual embeddings.
+```bash
+uv run cli/semantic_search_cli.py verify
+uv run cli/semantic_search_cli.py embed_text "text to embed"
+uv run cli/semantic_search_cli.py embed_query "query to embed"
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -133,14 +171,18 @@ uv run cli/keyword_search_cli.py bm25idf <term> [index_dir]
 ├── cli/
 │   ├── __init__.py
 │   ├── constants.py           # BM25 parameters: k1=1.5, b=0.75
-│   └── keyword_search_cli.py  # Core search engine class & CLI entrypoint
+│   ├── keyword_search_cli.py  # Keyword search engine CLI entrypoint
+│   ├── semantic_search_cli.py # Semantic search engine CLI entrypoint
+│   └── lib/
+│       └── semantic_search.py # Core SemanticSearch class & library functions
 ├── data/
 │   ├── movies.json            # Default dataset (~26MB, movies catalog)
 │   └── stopwords.txt          # Default stopwords list
 ├── docs/
 │   └── api.md                 # Detailed developer API documentation
 ├── tests/
-│   └── test_keyword_search.py # Comprehensive unit test suite
+│   ├── test_keyword_search.py # Keyword search unit test suite
+│   └── test_semantic_search.py# Semantic search unit test suite
 ├── pyproject.toml             # Project dependency specification
 └── README.md                  # This file
 ```
@@ -149,9 +191,9 @@ uv run cli/keyword_search_cli.py bm25idf <term> [index_dir]
 
 ## Running Unit Tests
 
-The project includes a comprehensive unit test suite covering text preprocessing, indexing correctness, TF-IDF & BM25 score calculations, index persistence, and CLI command execution.
+The project includes unit test suites covering text preprocessing, indexing correctness, TF-IDF, BM25, and semantic search (using mocked model execution for speed).
 
-Run the tests using standard Python `unittest`:
+Run all tests using standard Python `unittest`:
 
 ```bash
 uv run python -m unittest discover -s tests

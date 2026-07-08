@@ -117,3 +117,61 @@ print(f"Term '{stemmed_term}' in Doc 3 -> TF: {tf}, BM25 Score: {score:.4f}")
 # 4. Save index for subsequent use
 index.save("./cache")
 ```
+
+---
+
+### `SemanticSearch`
+
+The [SemanticSearch](file:///home/aarol/workspace/rag-search-engine/cli/lib/semantic_search.py#L6) class manages dense vector representations, embedding generation, index caching (via numpy/pickle), and cosine-similarity-based document search.
+
+```python
+class SemanticSearch:
+    model: SentenceTransformer
+    embeddings: np.ndarray
+    documents: dict[str, str]
+    document_map: dict[int, str]
+```
+
+#### `__init__(self, model: str = "all-MiniLM-L6-v2")`
+Instantiates a SemanticSearch manager and loads the sentence transformer model.
+- **`model`**: HuggingFace SentenceTransformer model name to load (defaults to `"all-MiniLM-L6-v2"`).
+
+#### `build_embeddings(self, documents: dict[str, str], save_dir: str = "cache") -> np.ndarray`
+Generates dense vector embeddings for the given documents and saves the embeddings array (`embeddings.npy`) and mapping dictionary (`document_map.pkl`) to `save_dir`.
+- **`documents`**: Dictionary mapping unique string document IDs to their contents.
+- **`save_dir`**: Target directory for serialized assets.
+
+#### `load_or_create_embeddings(self, documents: dict[str, str], save_dir: str = "cache") -> None`
+Attempts to load the embeddings and mapping files from `save_dir`. If they do not exist, it runs `build_embeddings` to compute them.
+
+#### `generate_embedding(self, text: str) -> np.ndarray`
+Generates a numpy vector embedding for a single text input string.
+
+#### `search(self, query: str, limit: int = 10) -> list[str]`
+Embeds the query, calculates cosine similarity against all cached document embeddings, and returns the top `limit` document IDs sorted by similarity in descending order (safely capped to total index size).
+
+---
+
+## Library Usage Example (Semantic Search)
+
+You can programmatic run semantic search as follows:
+
+```python
+from cli.lib.semantic_search import SemanticSearch
+
+# 1. Initialize manager (loads transformer model)
+semantic = SemanticSearch()
+
+# 2. Load or build embeddings for documents
+documents = {
+    "1": "The movie was filled with action and suspense.",
+    "2": "A romantic drama set in the 19th century.",
+    "3": "Action-packed thriller with science fiction themes."
+}
+semantic.load_or_create_embeddings(documents, save_dir="./cache")
+
+# 3. Perform a semantic search
+query = "romantic story"
+results = semantic.search(query, limit=2)
+print("Semantic Results:", results)  # Expected: ['2', '1']
+```
