@@ -4,6 +4,7 @@ import tempfile
 import numpy as np
 from unittest.mock import patch, MagicMock
 from cli.lib.semantic_search import SemanticSearch, cosine_similarity, verify_model, embed_text, embed_query
+from cli.semantic_search_cli import chunk_document
 
 class TestSemanticSearch(unittest.TestCase):
     def setUp(self):
@@ -128,3 +129,17 @@ class TestSemanticSearch(unittest.TestCase):
     def test_embed_query(self, mock_stdout):
         embed_query("test query")
         self.mock_model_instance.encode.assert_called_with("test query", convert_to_numpy=True)
+
+    @patch('sys.stdout')
+    def test_chunk_document(self, mock_stdout):
+        from io import StringIO
+        captured = StringIO()
+        with patch('sys.stdout', new=captured):
+            text = "This is a test text with more than ten words to see how chunking works"
+            chunk_document(text, max_tokens=5)
+            
+        output = captured.getvalue().strip().split('\n')
+        self.assertEqual(output[0], "Chunking 70 characters")
+        self.assertEqual(output[1], "1. This is a test text")
+        self.assertEqual(output[2], "2. with more than ten words")
+        self.assertEqual(output[3], "3. to see how chunking works")

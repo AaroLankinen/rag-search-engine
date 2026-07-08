@@ -43,8 +43,8 @@ class SemanticSearch:
         for score, idx in zip(top_k.values, top_k.indices):
             results.append(self.document_map[idx.item()])
         return results
-    
 
+        
 def verify_model():
     model = SentenceTransformer('all-MiniLM-L6-v2')
     print(f"Model loaded: {model}")

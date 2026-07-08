@@ -1,5 +1,8 @@
 import argparse
-from lib.semantic_search import SemanticSearch, verify_model, embed_text, verify_embeddings, embed_query
+try:
+    from cli.lib.semantic_search import SemanticSearch, verify_model, embed_text, verify_embeddings, embed_query
+except ImportError:
+    from lib.semantic_search import SemanticSearch, verify_model, embed_text, verify_embeddings, embed_query
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Semantic Search CLI")
@@ -18,6 +21,9 @@ def main() -> None:
     search_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
     search_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory to save embeddings")
     search_parser.add_argument("--limit", type=int, default=5, help="Maximum number of search results to return")
+    chunk_parser = subparsers.add_parser("chunk", help="Chunk a document into smaller documents")
+    chunk_parser.add_argument("text", help="Text to chunk")
+    chunk_parser.add_argument("--chunk-size", type=int, default=200, help="Maximum number of tokens per chunk")
     
     args = parser.parse_args()
 
@@ -57,9 +63,24 @@ def main() -> None:
                 full_doc = documents.get(doc_id, "Unknown Title")
                 title = full_doc.split("\n", 1)[0]
                 print(f"  {title}")
+        case "chunk":
+            chunk_document(args.text, args.chunk_size)
         case _:
             parser.print_help()
             
+def chunk_document(text, max_tokens: int = 200):
+    if max_tokens <= 0:
+        max_tokens = 1
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), max_tokens):
+        chunk = " ".join(words[i:i + max_tokens])
+        chunks.append(chunk)
+    
+    print(f"Chunking {len(text)} characters")
+    for idx, chunk in enumerate(chunks, 1):
+        print(f"{idx}. {chunk}")
+        
 
 if __name__ == "__main__":
     main()

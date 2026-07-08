@@ -162,6 +162,14 @@ uv run cli/semantic_search_cli.py embed_text "text to embed"
 uv run cli/semantic_search_cli.py embed_query "query to embed"
 ```
 
+#### `chunk`
+Splits a document's text into chunks of a given number of words.
+```bash
+uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK_SIZE]
+```
+- **`text`**: The text content to chunk.
+- **`--chunk-size`** *(Optional, default: `200`)*: Number of words per chunk.
+
 ---
 
 ## Project Structure
