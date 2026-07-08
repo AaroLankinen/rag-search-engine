@@ -3,6 +3,7 @@ import json
 import sys
 import string
 import collections
+import math
 from nltk.stem import PorterStemmer
 
 stemmer = PorterStemmer()
@@ -175,6 +176,15 @@ def main() -> None:
     tf_parser.add_argument("term", type=str, help="Search term")
     tf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
 
+    idf_parser = subparsers.add_parser("idf", help="Get inverse document frequency of a term")
+    idf_parser.add_argument("term", type=str, help="Search term")
+    idf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
+
+    tfidf_parser = subparsers.add_parser("tfidf", help="Get TF-IDF value of a term in a document")
+    tfidf_parser.add_argument("doc_id", type=str, help="Document ID")
+    tfidf_parser.add_argument("term", type=str, help="Search term")
+    tfidf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
+
     args = parser.parse_args()
     stop_words = load_stopwords("data/stopwords.txt")
 
@@ -207,7 +217,27 @@ def main() -> None:
             inverted_index.load(args.index_dir)
             token = tokenize_term(args.term)
             tf = inverted_index.get_tf(args.doc_id, token)
-            print(tf)
+            print(f"Term frequency of '{args.term}' in document '{args.doc_id}': {tf}")
+        case "idf":
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
+            token = tokenize_term(args.term)
+            total_doc_count = len(inverted_index.doc_map)
+            term_match_docs = inverted_index.index.get(token, [])
+            term_match_doc_count = len(term_match_docs)
+            idf = math.log((total_doc_count + 1) / (term_match_doc_count + 1))
+            print(f"Inverse document frequency of '{args.term}': {idf:.2f}")
+        case "tfidf":
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
+            token = tokenize_term(args.term)
+            tf = inverted_index.get_tf(args.doc_id, token)
+            total_doc_count = len(inverted_index.doc_map)
+            term_match_docs = inverted_index.index.get(token, [])
+            term_match_doc_count = len(term_match_docs)
+            idf = math.log((total_doc_count + 1) / (term_match_doc_count + 1))
+            tfidf = tf * idf
+            print(f"TF-IDF of '{args.term}' in document '{args.doc_id}': {tfidf:.2f}")
         case _:
             parser.print_help()
 
