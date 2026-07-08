@@ -44,6 +44,14 @@ class InvertedIndex:
         term_match_doc_count = len(self.index.get(term, []))
         return math.log((total_documents - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1)
 
+    # @function get_bm25_tf: get the Okapi BM25 TF value for a term
+    # @return: float
+    def get_bm25_tf(self, doc_id: str, term: str, k1: float = 1.5, b: float = 0.75) -> float:
+        doc_len = len(self.doc_map[doc_id].split())
+        avg_doc_len = sum(len(doc.split()) for doc in self.doc_map.values()) / len(self.doc_map)
+        tf = self.get_tf(doc_id, term)
+        return (tf * (k1 + 1)) / (tf + k1)    
+
     # @function __add_document: add a document to the inverted index
     # @return: None 
     def __add_document(self, doc_id: str, doc: str) -> None:
@@ -197,6 +205,12 @@ def main() -> None:
     bm25idf_parser.add_argument("term", type=str, help="Search term")
     bm25idf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
 
+    bm25tf_parser = subparsers.add_parser("bm25tf", help="Get Okapi BM25 TF value of a term in a document")
+    bm25tf_parser.add_argument("doc_id", type=str, help="Document ID")
+    bm25tf_parser.add_argument("term", type=str, help="Search term")
+    bm25tf_parser.add_argument("k1", type=float, nargs="?", default=1.5, help="BM25 k1 parameter")
+    bm25tf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
+
     args = parser.parse_args()
     stop_words = load_stopwords("data/stopwords.txt")
 
@@ -256,6 +270,12 @@ def main() -> None:
             token = tokenize_term(args.term)
             bm25idf = inverted_index.get_bm25_idf(token)
             print(f"BM25 IDF of '{args.term}': {bm25idf:.2f}")
+        case "bm25tf":
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
+            token = tokenize_term(args.term)
+            bm25tf = inverted_index.get_bm25_tf(args.doc_id, token, k1=args.k1)
+            print(f"BM25 TF of '{args.term}' in document '{args.doc_id}': {bm25tf:.2f}")
         case _:
             parser.print_help()
 
