@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import json
 import sys
@@ -35,6 +36,13 @@ class InvertedIndex:
         if doc_id not in self.term_frequencies:
             return 0
         return self.term_frequencies[doc_id].get(term, 0)
+
+    # @function get_bm25_idf: get the Okapi BM25 IDF value for a term
+    # @return: float
+    def get_bm25_idf(self, term: str) -> float:
+        total_documents = len(self.doc_map)
+        term_match_doc_count = len(self.index.get(term, []))
+        return math.log((total_documents - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1)
 
     # @function __add_document: add a document to the inverted index
     # @return: None 
@@ -185,6 +193,10 @@ def main() -> None:
     tfidf_parser.add_argument("term", type=str, help="Search term")
     tfidf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
 
+    bm25idf_parser = subparsers.add_parser("bm25idf", help="Get Okapi BM25 IDF value of a term")
+    bm25idf_parser.add_argument("term", type=str, help="Search term")
+    bm25idf_parser.add_argument("index_dir", type=str, nargs="?", default="cache", help="Directory containing index files")
+
     args = parser.parse_args()
     stop_words = load_stopwords("data/stopwords.txt")
 
@@ -238,6 +250,12 @@ def main() -> None:
             idf = math.log((total_doc_count + 1) / (term_match_doc_count + 1))
             tfidf = tf * idf
             print(f"TF-IDF of '{args.term}' in document '{args.doc_id}': {tfidf:.2f}")
+        case "bm25idf":
+            inverted_index = InvertedIndex([])
+            inverted_index.load(args.index_dir)
+            token = tokenize_term(args.term)
+            bm25idf = inverted_index.get_bm25_idf(token)
+            print(f"BM25 IDF of '{args.term}': {bm25idf:.2f}")
         case _:
             parser.print_help()
 
