@@ -175,3 +175,66 @@ query = "romantic story"
 results = semantic.search(query, limit=2)
 print("Semantic Results:", results)  # Expected: ['2', '1']
 ```
+
+---
+
+### `ChunkedSemanticSearch`
+
+The [ChunkedSemanticSearch](file:///home/aarol/workspace/rag-search-engine/cli/lib/semantic_search.py#L52) class extends the core semantic search manager to handle document chunking, chunk metadata tracking, and dense search across chunked representations.
+
+```python
+class ChunkedSemanticSearch(SemanticSearch):
+    chunk_embeddings: np.ndarray
+    chunk_metadata: list[dict]
+```
+
+#### `build_chunk_embeddings(self, documents: dict[str, str], save_dir: str = "cache") -> np.ndarray`
+Divides each document into smaller paragraphs (chunks) based on semantic content shifts and word limits, builds dense embeddings for each chunk, and saves the embeddings (`chunk_embeddings.npy`) and mapping metadata (`chunk_metadata.json`) to `save_dir`.
+- **`documents`**: Dictionary mapping document IDs to contents.
+
+#### `load_or_create_chunk_embeddings(self, documents: dict[str, str], save_dir: str = "cache") -> np.ndarray`
+Loads pre-computed chunk embeddings and metadata from `save_dir`. If not found, builds them by calling `build_chunk_embeddings`.
+
+#### `search(self, query: str, limit: int = 10) -> list[dict]`
+Embeds the query, calculates similarity scores against all document chunk embeddings, and returns the top `limit` chunk matches.
+- **Returns**: A list of dictionaries, where each dictionary contains `"doc_id"`, `"chunk_id"`, `"score"`, and the chunk `"text"`.
+
+---
+
+### Chunking Helper Functions
+
+#### `semantic_chunk_document(text: str, max_tokens: int = 200, overlap: int = 50, threshold: float = 0.5, return_chunks: bool = False, semantic_search: SemanticSearch = None) -> list[str]`
+Splits a document's text into semantically cohesive sentence groups. It computes sentence embeddings, calculates cosine similarity between adjacent sentences, and splits where similarity falls below `threshold` or the token limit is reached.
+- **`text`**: The input document text.
+- **`max_tokens`**: Maximum number of sentences per chunk.
+- **`overlap`**: Overlap sentence count between consecutive chunks.
+- **`threshold`**: Cosine similarity cutoff for splitting chunks (lower threshold creates larger chunks).
+
+#### `chunk_document(text: str, max_tokens: int = 200, overlap: int = 0) -> list[str]`
+Splits text into static, word-count-based chunks.
+- **`text`**: The input document text.
+- **`max_tokens`**: Maximum number of words (tokens) per chunk.
+- **`overlap`**: Overlap word count between consecutive chunks.
+
+---
+
+## Library Usage Example (Chunked Semantic Search)
+
+```python
+from cli.lib.semantic_search import ChunkedSemanticSearch
+
+# 1. Initialize manager
+chunked_search = ChunkedSemanticSearch()
+
+# 2. Build or load chunk embeddings
+documents = {
+    "doc1": "A badly injured officer is lying by the bank. He thinks about his wife. The story moves to a flashback.",
+    "doc2": "A romantic comedy set in London. Two friends fall in love after college."
+}
+chunked_search.load_or_create_chunk_embeddings(documents, save_dir="./cache")
+
+# 3. Perform chunked search
+results = chunked_search.search("injured policeman", limit=2)
+print("Top Chunk:", results[0])
+# Expected keys: doc_id, chunk_id, score, text
+```
