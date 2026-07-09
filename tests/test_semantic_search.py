@@ -145,7 +145,7 @@ class TestSemanticSearch(unittest.TestCase):
         self.assertEqual(output[3], "3. to see how chunking works")
 
     @patch('sys.stdout')
-    @patch('cli.semantic_search_cli.cosine_similarity')
+    @patch('cli.lib.semantic_search.cosine_similarity')
     def test_semantic_chunk_document(self, mock_cosine_sim, mock_stdout):
         from io import StringIO
         mock_cosine_sim.return_value = 0.9  # always similar, only size split is triggered
@@ -158,6 +158,22 @@ class TestSemanticSearch(unittest.TestCase):
         self.assertEqual(output[0], "Semantically chunking 141 characters")
         self.assertEqual(output[1], "1. This is the first sentence. This is the second sentence. This is the third sentence.")
         self.assertEqual(output[2], "2. This is the fourth sentence. This is the fifth sentence.")
+
+    @patch('sys.stdout')
+    @patch('cli.lib.semantic_search.cosine_similarity')
+    def test_semantic_chunk_document_edge_cases(self, mock_cosine_sim, mock_stdout):
+        # 1. Empty input
+        res = semantic_chunk_document("   ", return_chunks=True)
+        self.assertEqual(res, [])
+        
+        # 2. One sentence without punctuation
+        mock_cosine_sim.return_value = 0.9
+        res = semantic_chunk_document("  Just a single sentence without punctuation   ", return_chunks=True)
+        self.assertEqual(res, ["Just a single sentence without punctuation"])
+        
+        # 3. Leading and trailing spaces split
+        res = semantic_chunk_document("  A hero rises.  The world needs saving. ", return_chunks=True)
+        self.assertEqual(res, ["A hero rises. The world needs saving."])
 
     def test_chunked_semantic_search_init(self):
         css = ChunkedSemanticSearch()
