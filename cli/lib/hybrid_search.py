@@ -1,6 +1,12 @@
 import os
 
-from .keyword_search import InvertedIndex
+try:
+    from cli.keyword_search_cli import InvertedIndex
+except ImportError:
+    try:
+        from ..keyword_search_cli import InvertedIndex
+    except ImportError:
+        from keyword_search_cli import InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
 
 class HybridSearch:
@@ -23,3 +29,12 @@ class HybridSearch:
 
     def rrf_search(self, query: str, k: int, limit: int = 10) -> list[dict]:
         raise NotImplementedError("RRF hybrid search is not implemented yet.")
+
+def normalize_scores(scores: list[float]) -> list[float]:
+    if not scores:
+        return []
+    min_score = min(scores)
+    max_score = max(scores)
+    if max_score == min_score:
+        return [1.0] * len(scores)
+    return [(s - min_score) / (max_score - min_score) for s in scores]
