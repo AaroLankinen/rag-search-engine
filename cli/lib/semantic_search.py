@@ -1,5 +1,7 @@
 import os
 import torch
+import re
+import json
 import numpy as np
 from sentence_transformers import SentenceTransformer, util
 
@@ -44,7 +46,75 @@ class SemanticSearch:
             results.append(self.document_map[idx.item()])
         return results
 
+class ChunkedSemanticSearch(SemanticSearch):
+    def __init__(self, model: str = "all-MiniLM-L6-v2") -> None:
+        super().__init__(model)
+        self.chunk_embeddings = None
+        self.chunk_metadata = None
+    
+    def build_chunk_embeddings(self, documents: dict[str, str], save_dir: str = "cache") -> np.ndarray:
+        chunk_metadata = []
+        all_chunks = []
+        chunk_id_counter = 0
+
+        print("Indexing documents...")
+        for doc_id, text in documents.items():
+            chunks = semantic_chunk_document(text, max_tokens=200, overlap=50, threshold=0.5, return_chunks=True, semantic_search=self)
+            for chunk in chunks:
+                metadata = {
+                    "doc_id": doc_id,
+                    "chunk_id": chunk_id_counter,
+                    "text": chunk
+                }
+                chunk_metadata.append(metadata)
+                all_chunks.append(chunk)
+                chunk_id_counter += 1
+
+        print(f"Chunked into {len(all_chunks)} chunks. Embedding...")
+        self.chunk_embeddings = self.model.encode(
+            all_chunks, convert_to_numpy=True, show_progress_bar=True
+        )
+        self.chunk_metadata = chunk_metadata
+
+        # Save embeddings and metadata
+        os.makedirs(save_dir, exist_ok=True)
+        np.save(os.path.join(save_dir, "chunk_embeddings.npy"), self.chunk_embeddings)
+        with open(os.path.join(save_dir, "chunk_metadata.json"), "w") as f:
+            json.dump(chunk_metadata, f, indent=2)
+
+        return self.chunk_embeddings
+
+    def load_or_create_chunk_embeddings(self, documents: dict[str, str], save_dir: str = "cache") -> np.ndarray:
+        try:
+            self.chunk_embeddings = np.load(os.path.join(save_dir, "chunk_embeddings.npy"))
+            with open(os.path.join(save_dir, "chunk_metadata.json"), "r") as f:
+                self.chunk_metadata = json.load(f)
+        except FileNotFoundError:
+            self.build_chunk_embeddings(documents, save_dir)
+        return self.chunk_embeddings
+    
+    def search(self, query: str, limit: int = 10) -> list[dict]:
+        if self.chunk_embeddings is None or len(self.chunk_embeddings) == 0:
+            return []
         
+        query_embedding = self.generate_embedding(query)
+        similarities = util.cos_sim(query_embedding, self.chunk_embeddings)[0]
+        k = min(limit, len(self.chunk_embeddings))
+        top_k = torch.topk(similarities, k=k)
+        
+        results = []
+        for score, idx in zip(top_k.values, top_k.indices):
+            meta = self.chunk_metadata[idx.item()]
+            results.append({
+                "doc_id": meta["doc_id"],
+                "chunk_id": meta["chunk_id"],
+                "score": score.item(),
+                "text": meta["text"]
+            })
+        return results
+    
+    
+
 def verify_model():
     model = SentenceTransformer('all-MiniLM-L6-v2')
     print(f"Model loaded: {model}")
@@ -120,4 +190,65 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
         return 0.0
 
     return dot_product / (norm1 * norm2)
+
+
+def semantic_chunk_document(text: str, max_tokens: int = 200, overlap: int = 50, threshold: float = 0.5, return_chunks: bool = False, semantic_search: SemanticSearch = None) -> list[str]:
+    if max_tokens <= 0:
+        max_tokens = 1
+    overlap = max(0, min(overlap, max_tokens - 1))
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if not sentences:
+        if not return_chunks:
+            print(f"Semantically chunking {len(text)} characters")
+        return []
+
+    if semantic_search is None:
+        semantic_search = SemanticSearch()
+    embeddings = semantic_search.generate_embedding(sentences)
+    similarities = []
+    for i in range(len(sentences) - 1):
+        sim = cosine_similarity(embeddings[i], embeddings[i+1])
+        similarities.append(sim)
+
+    chunks = []
+    current_chunk = []
+    for idx, sentence in enumerate(sentences):
+        if current_chunk:
+            size_split = len(current_chunk) >= max_tokens
+            similarity_split = similarities[idx - 1] < threshold
+            if size_split or similarity_split:
+                chunks.append(" ".join(current_chunk))
+                if overlap > 0:
+                    current_chunk = current_chunk[-overlap:]
+                else:
+                    current_chunk = []
+        current_chunk.append(sentence)
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+    
+    if not return_chunks:
+        print(f"Semantically chunking {len(text)} characters")
+        for idx, chunk in enumerate(chunks, 1):
+            print(f"{idx}. {chunk}")
+            
+    return chunks
+
+
+def chunk_document(text: str, max_tokens: int = 200, overlap: int = 0) -> list[str]:
+    if max_tokens <= 0:
+        max_tokens = 1
+    overlap = max(0, min(overlap, max_tokens - 1))
+    step = max_tokens - overlap
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), step):
+        chunk = " ".join(words[i:i + max_tokens])
+        chunks.append(chunk)
+    
+    print(f"Chunking {len(text)} characters")
+    for idx, chunk in enumerate(chunks, 1):
+        print(f"{idx}. {chunk}")
+        
+    return chunks
 

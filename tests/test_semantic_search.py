@@ -3,7 +3,7 @@ import os
 import tempfile
 import numpy as np
 from unittest.mock import patch, MagicMock
-from cli.lib.semantic_search import SemanticSearch, cosine_similarity, verify_model, embed_text, embed_query
+from cli.lib.semantic_search import SemanticSearch, ChunkedSemanticSearch, cosine_similarity, verify_model, embed_text, embed_query
 from cli.semantic_search_cli import chunk_document, semantic_chunk_document
 
 class TestSemanticSearch(unittest.TestCase):
@@ -158,3 +158,52 @@ class TestSemanticSearch(unittest.TestCase):
         self.assertEqual(output[0], "Semantically chunking 141 characters")
         self.assertEqual(output[1], "1. This is the first sentence. This is the second sentence. This is the third sentence.")
         self.assertEqual(output[2], "2. This is the fourth sentence. This is the fifth sentence.")
+
+    def test_chunked_semantic_search_init(self):
+        css = ChunkedSemanticSearch()
+        self.mock_encoder.assert_called_with("all-MiniLM-L6-v2")
+        self.assertIsNone(css.chunk_embeddings)
+        self.assertIsNone(css.chunk_metadata)
+
+    def test_build_and_load_chunk_embeddings(self):
+        css = ChunkedSemanticSearch()
+        documents = {
+            "doc1": "This is sentence one. This is sentence two. This is sentence three.",
+            "doc2": "Another document sentence."
+        }
+        
+        # Build chunk embeddings and verify files are created
+        embeddings = css.build_chunk_embeddings(documents, self.temp_dir.name)
+        self.assertGreaterEqual(embeddings.shape[0], 1)
+        self.assertGreaterEqual(len(css.chunk_metadata), 1)
+        self.assertEqual(css.chunk_metadata[0]["doc_id"], "doc1")
+        
+        self.assertTrue(os.path.exists(os.path.join(self.temp_dir.name, "chunk_embeddings.npy")))
+        self.assertTrue(os.path.exists(os.path.join(self.temp_dir.name, "chunk_metadata.json")))
+        
+        # Create a new instance and load from cache
+        css2 = ChunkedSemanticSearch()
+        
+        self.mock_model_instance.encode.reset_mock()
+        css2.load_or_create_chunk_embeddings(documents, self.temp_dir.name)
+        self.mock_model_instance.encode.assert_not_called()
+        
+        self.assertGreaterEqual(css2.chunk_embeddings.shape[0], 1)
+        self.assertGreaterEqual(len(css2.chunk_metadata), 1)
+        self.assertEqual(css2.chunk_metadata[0]["doc_id"], "doc1")
+
+    def test_chunked_search(self):
+        css = ChunkedSemanticSearch()
+        documents = {
+            "doc1": "Sentence one. Sentence two. Sentence three.",
+            "doc2": "Another sentence."
+        }
+        css.build_chunk_embeddings(documents, self.temp_dir.name)
+        
+        # Search
+        results = css.search("query", limit=1)
+        self.assertEqual(len(results), 1)
+        self.assertIn("doc_id", results[0])
+        self.assertIn("chunk_id", results[0])
+        self.assertIn("score", results[0])
+        self.assertIn("text", results[0])

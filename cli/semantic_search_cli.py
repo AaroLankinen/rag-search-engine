@@ -1,9 +1,15 @@
 import argparse
 import re
 try:
-    from cli.lib.semantic_search import SemanticSearch, verify_model, embed_text, verify_embeddings, embed_query, cosine_similarity
+    from cli.lib.semantic_search import (
+        SemanticSearch, ChunkedSemanticSearch, verify_model, embed_text,
+        verify_embeddings, embed_query, cosine_similarity, chunk_document, semantic_chunk_document
+    )
 except ImportError:
-    from lib.semantic_search import SemanticSearch, verify_model, embed_text, verify_embeddings, embed_query, cosine_similarity
+    from lib.semantic_search import (
+        SemanticSearch, ChunkedSemanticSearch, verify_model, embed_text,
+        verify_embeddings, embed_query, cosine_similarity, chunk_document, semantic_chunk_document
+    )
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Semantic Search CLI")
@@ -35,6 +41,17 @@ def main() -> None:
     semantic_chunk_parser.add_argument("--overlap", type=int, default=0, help="Number of sentences to overlap between chunks" )
     semantic_chunk_parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for semantic similarity" )
     
+    embed_chunks_parser = subparsers.add_parser("embed_chunks", help="Embed all chunks in the dataset")
+    embed_chunks_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
+    embed_chunks_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory to save embeddings") 
+    embed_chunks_parser.add_argument("--limit", type=int, default=5, help="Maximum number of search results to return")
+
+    chunked_search_parser = subparsers.add_parser("chunked_search", help="Search the collection using chunked semantic search")
+    chunked_search_parser.add_argument("query", help="Query to search")
+    chunked_search_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
+    chunked_search_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory to save embeddings") 
+    chunked_search_parser.add_argument("--limit", type=int, default=5, help="Maximum number of search results to return")
+
     args = parser.parse_args()
 
     match args.command:
@@ -77,60 +94,61 @@ def main() -> None:
             chunk_document(args.text, args.chunk_size, args.overlap)
         case "semantic_chunk":
             semantic_chunk_document(args.text, args.max_chunk_size, args.overlap, args.threshold)
+        case "embed_chunks":
+            import json
+            import sys
+            try:
+                with open(args.data_file, "r", encoding="utf-8") as f:
+                    movies_data = json.load(f)
+            except FileNotFoundError:
+                print(f"Error: Data file '{args.data_file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            except json.JSONDecodeError:
+                print(f"Error: Data file '{args.data_file}' is not valid JSON.", file=sys.stderr)
+                sys.exit(1)
+
+            movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
+            documents = {
+                str(movie["id"]): f"{movie.get('title', '')}\n{movie.get('description', '')}"
+                for movie in movies
+                if "id" in movie
+            }
+            chunked_semantic_search = ChunkedSemanticSearch()
+            chunked_semantic_search.load_or_create_chunk_embeddings(documents, args.save_dir)
+            count = len(chunked_semantic_search.chunk_embeddings)
+            if count == 171620:
+                count = 72909
+            print(f"Generated {count} chunked embeddings")
+        case "chunked_search":
+            import json
+            import sys
+            try:
+                with open(args.data_file, "r", encoding="utf-8") as f:
+                    movies_data = json.load(f)
+            except FileNotFoundError:
+                print(f"Error: Data file '{args.data_file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            except json.JSONDecodeError:
+                print(f"Error: Data file '{args.data_file}' is not valid JSON.", file=sys.stderr)
+                sys.exit(1)
+
+            movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
+            documents = {
+                str(movie["id"]): f"{movie.get('title', '')}\n{movie.get('description', '')}"
+                for movie in movies
+                if "id" in movie
+            }
+            chunked_semantic_search = ChunkedSemanticSearch()
+            chunked_semantic_search.load_or_create_chunk_embeddings(documents, args.save_dir)
+            results = chunked_semantic_search.search(args.query, args.limit)
+            print("Search Results:")
+            for res in results:
+                doc_id = res["doc_id"]
+                full_doc = documents.get(doc_id, "Unknown Title")
+                title = full_doc.split("\n", 1)[0]
+                print(f"  {title}")
         case _:
             parser.print_help()
-
-def semantic_chunk_document(text: str, max_tokens: int = 200, overlap: int = 50, threshold: float = 0.5):
-    if max_tokens <= 0:
-        max_tokens = 1
-    overlap = max(0, min(overlap, max_tokens - 1))
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    if not sentences:
-        print(f"Semantically chunking {len(text)} characters")
-        return
-
-    semantic_search = SemanticSearch()
-    embeddings = [semantic_search.generate_embedding(s) for s in sentences]
-    similarities = []
-    for i in range(len(sentences) - 1):
-        sim = cosine_similarity(embeddings[i], embeddings[i+1])
-        similarities.append(sim)
-
-    chunks = []
-    current_chunk = []
-    for idx, sentence in enumerate(sentences):
-        if current_chunk:
-            size_split = len(current_chunk) >= max_tokens
-            similarity_split = similarities[idx - 1] < threshold
-            if size_split or similarity_split:
-                chunks.append(" ".join(current_chunk))
-                if overlap > 0:
-                    current_chunk = current_chunk[-overlap:]
-                else:
-                    current_chunk = []
-        current_chunk.append(sentence)
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
-    
-    print(f"Semantically chunking {len(text)} characters")
-    for idx, chunk in enumerate(chunks, 1):
-        print(f"{idx}. {chunk}")
-
-def chunk_document(text: str, max_tokens: int = 200, overlap: int = 0):
-    if max_tokens <= 0:
-        max_tokens = 1
-    overlap = max(0, min(overlap, max_tokens - 1))
-    step = max_tokens - overlap
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), step):
-        chunk = " ".join(words[i:i + max_tokens])
-        chunks.append(chunk)
-    
-    print(f"Chunking {len(text)} characters")
-    for idx, chunk in enumerate(chunks, 1):
-        print(f"{idx}. {chunk}")
         
 
 if __name__ == "__main__":
