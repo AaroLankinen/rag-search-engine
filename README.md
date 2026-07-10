@@ -172,6 +172,34 @@ uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK
 
 ---
 
+### Hybrid Search Operations
+
+Supported via `cli/hybrid_search_cli.py`:
+
+#### `normalize`
+Normalizes a list of numeric scores to the interval 0 to 1.
+```bash
+uv run cli/hybrid_search_cli.py normalize <score1> <score2> [score3 ...]
+```
+
+#### `weighted-search`
+Performs weighted hybrid search, combining normalized Okapi BM25 and semantic similarity scores.
+```bash
+uv run cli/hybrid_search_cli.py weighted-search "your query" [--alpha ALPHA] [--limit LIMIT] [--data_file DATA_FILE] [--save_dir SAVE_DIR]
+```
+- **`--alpha`** *(Optional, default: `0.5`)*: Tunable parameter (0 to 1) to weigh between semantic search (`alpha`) and BM25 search (`1 - alpha`).
+- **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
+
+#### `rrf-search`
+Performs Reciprocal Rank Fusion (RRF) hybrid search on top retrieved results.
+```bash
+uv run cli/hybrid_search_cli.py rrf-search "your query" [--k K] [--limit LIMIT] [--data_file DATA_FILE] [--save_dir SAVE_DIR]
+```
+- **`--k`** *(Optional, default: `60`)*: RRF constant ranking parameter.
+- **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
+
+---
+
 ## Project Structure
 
 ```
@@ -181,8 +209,10 @@ uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK
 │   ├── constants.py           # BM25 parameters: k1=1.5, b=0.75
 │   ├── keyword_search_cli.py  # Keyword search engine CLI entrypoint
 │   ├── semantic_search_cli.py # Semantic search engine CLI entrypoint
+│   ├── hybrid_search_cli.py   # Hybrid search (Weighted & RRF) CLI entrypoint
 │   └── lib/
-│       └── semantic_search.py # Core SemanticSearch class & library functions
+│       ├── semantic_search.py # Core SemanticSearch class & library functions
+│       └── hybrid_search.py   # Core HybridSearch class, normalize & weighted logic
 ├── data/
 │   ├── movies.json            # Default dataset (~26MB, movies catalog)
 │   └── stopwords.txt          # Default stopwords list
