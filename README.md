@@ -197,7 +197,7 @@ uv run cli/hybrid_search_cli.py rrf-search "your query" [--k K] [--limit LIMIT] 
 ```
 - **`--k`** *(Optional, default: `60`)*: RRF constant ranking parameter.
 - **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
-- **`--enhance`** *(Optional, default: `None`)*: Query enhancement method (e.g. `spell` for LLM spell correction).
+- **`--enhance`** *(Optional, default: `None`)*: Query enhancement method (e.g. `spell` for LLM spell correction, `rewrite` for google-style query rewriting).
 
 ---
 
