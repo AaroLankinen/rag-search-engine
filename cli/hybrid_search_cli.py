@@ -26,7 +26,7 @@ def main() -> None:
     rrf_search_parser.add_argument("--limit", type=int, default=5, help="Maximum number of search results to return")
     rrf_search_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
     rrf_search_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
-    rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite"], help="Query enhancement method")
+    rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Query enhancement method")
 
     args = parser.parse_args()
 
@@ -84,7 +84,7 @@ def main() -> None:
                 from lib.hybrid_search import HybridSearch
 
             query = args.query
-            if args.enhance in ["spell", "rewrite"]:
+            if args.enhance in ["spell", "rewrite", "expand"]:
                 import os
                 from dotenv import load_dotenv
                 from openai import OpenAI
@@ -92,7 +92,7 @@ def main() -> None:
                 # Resolve the absolute path to the workspace .env file
                 cli_dir = os.path.dirname(os.path.abspath(__file__))
                 dotenv_path = os.path.join(os.path.dirname(cli_dir), '.env')
-                load_dotenv(dotenv_path)
+                load_dotenv(dotenv_path, override=True)
 
                 api_key = os.environ.get("OPENROUTER_API_KEY")
                 if not api_key:
@@ -105,8 +105,10 @@ def main() -> None:
 
                 if args.enhance == "spell":
                     system_prompt = "You are a spelling correction assistant. Correct any spelling or typographical errors in the user query. Do not add any conversational text, explanations, or quotes. Respond ONLY with the corrected query."
-                else:
+                elif args.enhance == "rewrite":
                     system_prompt = "You are a query optimization assistant. Rewrite the user query into a concise, Google-style keyword search query designed to yield highly relevant search results. Do not add any conversational text, explanations, or quotes. Respond ONLY with the rewritten query."
+                else:
+                    system_prompt = "You are a query expansion assistant. Expand the user query by appending synonyms, related concepts, and broader search terms to improve recall. Do not add any conversational text, explanations, or quotes. Respond ONLY with the expanded query."
 
                 response = client.chat.completions.create(
                     model="openrouter/free",

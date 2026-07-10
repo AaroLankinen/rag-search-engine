@@ -55,13 +55,13 @@ class InvertedIndex:
         if self._avg_doc_len is None:
             if not self.doc_map:
                 return 0.0
-            self._avg_doc_len = sum(len(preprocess_text(doc)) for doc in self.doc_map.values()) / len(self.doc_map)
+            self._avg_doc_len = sum(sum(self.term_frequencies[d_id].values()) for d_id in self.doc_map) / len(self.doc_map)
         return self._avg_doc_len
 
     # @function get_bm25_tf: get the Okapi BM25 TF value for a term
     # @return: float
     def get_bm25_tf(self, doc_id: str, term: str, k1: float = K1, b: float = B) -> float:
-        doc_len = len(preprocess_text(self.doc_map[doc_id]))
+        doc_len = sum(self.term_frequencies[doc_id].values())
         tf = self.get_tf(doc_id, term)
         return (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / self.avg_doc_len))    
 
