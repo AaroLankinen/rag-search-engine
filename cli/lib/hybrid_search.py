@@ -107,7 +107,89 @@ class HybridSearch:
         return sorted_results[:limit]
 
     def rrf_search(self, query: str, k: int, limit: int = 10) -> list[dict]:
-        raise NotImplementedError("RRF hybrid search is not implemented yet.")
+        """Perform Reciprocal Rank Fusion (RRF) hybrid search.
+
+        Retrieves ranked lists from both semantic and BM25 searches (top 500
+        for each), then combines them using the RRF formula:
+            RRF(d) = 1/(k + rank_semantic(d)) + 1/(k + rank_bm25(d))
+        where non-retrieved documents get a reciprocal rank contribution of 0.
+
+        Args:
+            query: The search query string.
+            k: RRF smoothing constant (typically 60).
+            limit: Maximum number of results to return.
+
+        Returns:
+            A list of result dicts, each containing 'document', 'rrf_score',
+            'bm25_score', and 'semantic_score'.
+        """
+        # 1. Get semantic scores for all chunks, aggregate max per document
+        chunk_results = self.semantic_search.search(
+            query, limit=len(self.semantic_search.chunk_embeddings)
+        )
+
+        semantic_raw = {}
+        for res in chunk_results:
+            d_id = str(res["doc_id"])
+            score = res["score"]
+            if d_id not in semantic_raw or score > semantic_raw[d_id]:
+                semantic_raw[d_id] = score
+
+        # 2. Get top 500 semantic documents
+        sem_ranked = sorted(
+            semantic_raw.items(),
+            key=lambda x: (x[1], -int(x[0])),
+            reverse=True,
+        )
+        sem_limit = 500
+        sem_top = sem_ranked[:sem_limit]
+        sem_rank = {d_id: rank for rank, (d_id, _) in enumerate(sem_top, 1)}
+
+        # 3. Get top 500 BM25 documents
+        self.idx.load(self.index_dir)
+        bm25_limit = 500
+        bm25_top_ids = self.idx.bm25_search(query, limit=bm25_limit)
+        bm25_rank = {d_id: rank for rank, d_id in enumerate(bm25_top_ids, 1)}
+
+        # 4. Candidate pool is the union of top lists
+        candidate_ids = list(set(sem_rank.keys()) | set(bm25_rank.keys()))
+
+        # Compute raw scores for normalization/display
+        bm25_raw = {d_id: self.idx.bm25(d_id, query) for d_id in candidate_ids}
+        raw_sem_list = [semantic_raw.get(d_id, 0.0) for d_id in candidate_ids]
+        raw_bm25_list = [bm25_raw[d_id] for d_id in candidate_ids]
+
+        norm_sem_list = normalize_scores(raw_sem_list)
+        norm_bm25_list = normalize_scores(raw_bm25_list)
+
+        norm_sem = dict(zip(candidate_ids, norm_sem_list))
+        norm_bm25 = dict(zip(candidate_ids, norm_bm25_list))
+
+        # 5. Compute RRF score for each candidate
+        doc_map = {str(doc["id"]): doc for doc in self.documents}
+        results = []
+        for d_id in candidate_ids:
+            s_r = sem_rank.get(d_id)
+            b_r = bm25_rank.get(d_id)
+
+            s_term = 1 / (k + s_r) if s_r is not None else 0.0
+            b_term = 1 / (k + b_r) if b_r is not None else 0.0
+            rrf_score = s_term + b_term
+
+            results.append({
+                "document": doc_map[d_id],
+                "rrf_score": rrf_score,
+                "bm25_score": norm_bm25[d_id],
+                "semantic_score": norm_sem[d_id],
+            })
+
+        # 6. Sort by rrf_score descending; ties broken by document ID ascending
+        sorted_results = sorted(
+            results,
+            key=lambda x: (x["rrf_score"], -int(x["document"]["id"])),
+            reverse=True,
+        )
+        return sorted_results[:limit]
 
 def normalize_scores(scores: list[float]) -> list[float]:
     if not scores:

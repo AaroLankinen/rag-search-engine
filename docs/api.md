@@ -238,3 +238,64 @@ results = chunked_search.search("injured policeman", limit=2)
 print("Top Chunk:", results[0])
 # Expected keys: doc_id, chunk_id, score, text
 ```
+
+---
+
+### `HybridSearch`
+
+The [HybridSearch](file:///home/aarol/workspace/rag-search-engine/cli/lib/hybrid_search.py#L12) class integrates sparse keyword matching (`InvertedIndex`) and dense vector retrieval (`ChunkedSemanticSearch`) algorithms.
+
+```python
+class HybridSearch:
+    documents: list[dict]
+    index_dir: str
+    semantic_search: ChunkedSemanticSearch
+    idx: InvertedIndex
+```
+
+#### `__init__(self, documents: list[dict], index_dir: str = "cache")`
+Instantiates a new HybridSearch coordinator.
+- **`documents`**: The raw document catalog as a list of dicts.
+- **`index_dir`**: The directory to read/write serialized caches.
+
+#### `weighted_search(self, query: str, alpha: float, limit: int = 5) -> list[dict]`
+Performs alpha-weighted score combinations on the top semantic candidates.
+- **`query`**: Search query string.
+- **`alpha`**: Tunable parameter (0 to 1) weighting semantic search vs BM25.
+- **`limit`**: Maximum number of search results to return.
+- **Returns**: A list of dicts containing the movie document, `hybrid_score`, `bm25_score`, and `semantic_score`.
+
+#### `rrf_search(self, query: str, k: int, limit: int = 10) -> list[dict]`
+Performs Reciprocal Rank Fusion on the top 500 search results from both search subsystems.
+- **`query`**: Search query string.
+- **`k`**: RRF ranking parameter (typically 60).
+- **`limit`**: Maximum number of search results to return.
+- **Returns**: A list of dicts containing the movie document, `rrf_score`, `bm25_score`, and `semantic_score`.
+
+#### `normalize_scores(scores: list[float]) -> list[float]`
+Min-max normalizes a list of scores to the interval $[0, 1]$.
+- **Returns**: Normalized score list.
+
+---
+
+## Library Usage Example (Hybrid Search)
+
+```python
+from cli.lib.hybrid_search import HybridSearch
+
+# 1. Initialize Hybrid Search
+movies = [
+    {"id": 1, "title": "The Lion King", "description": "An animated movie about lions."},
+    {"id": 2, "title": "Gladiator", "description": "A historical drama about Roman fighters."}
+]
+hybrid = HybridSearch(movies, index_dir="./cache")
+
+# 2. Run Weighted search
+weighted_res = hybrid.weighted_search("lion fighter", alpha=0.5, limit=2)
+print("Weighted result:", weighted_res[0]["document"]["title"])
+
+# 3. Run RRF search
+rrf_res = hybrid.rrf_search("roman lions", k=60, limit=2)
+print("RRF result:", rrf_res[0]["document"]["title"])
+```
+
