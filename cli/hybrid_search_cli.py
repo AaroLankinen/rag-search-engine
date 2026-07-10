@@ -27,7 +27,7 @@ def main() -> None:
     rrf_search_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
     rrf_search_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
     rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Query enhancement method")
-    rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual", "batch"], help="Reranking method to use")
+    rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual", "batch", "cross_encoder"], help="Reranking method to use")
 
     args = parser.parse_args()
 
@@ -379,6 +379,55 @@ Ranking:"""
 
                     print(f"{i}. {title}")
                     print(f"   Re-rank Rank: {i}")
+                    print(f"   RRF Score: {res['rrf_score']:.3f}")
+                    print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
+                    print(f"   {truncated_desc}")
+                    print()
+            elif getattr(args, "rerank_method", None) == "cross_encoder":
+                from sentence_transformers import CrossEncoder
+
+                results = hybrid_search.rrf_search(query, args.k, args.limit * 5)
+
+                print(f"Re-ranking top {args.limit} results using cross_encoder method...")
+                print(f"Reciprocal Rank Fusion Results for '{query}' (k={args.k}):\n")
+
+                # Build query-document pairs for the CrossEncoder
+                pairs = []
+                for res in results:
+                    doc = res["document"]
+                    doc_text = f"{doc.get('title', '')} - {doc.get('description', '') or doc.get('document', '')}"
+                    pairs.append((query, doc_text))
+
+                # Score all pairs in a single batch
+                cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+                scores = cross_encoder.predict(pairs)
+
+                # Attach scores to results
+                for res, score in zip(results, scores):
+                    res["cross_encoder_score"] = float(score)
+
+                # Sort by cross_encoder_score descending, then rrf_score descending,
+                # then document ID ascending
+                sorted_results = sorted(
+                    results,
+                    key=lambda x: (x["cross_encoder_score"], x["rrf_score"], -int(x["document"]["id"])),
+                    reverse=True,
+                )
+
+                for i, res in enumerate(sorted_results[:args.limit], start=1):
+                    doc = res["document"]
+                    title = doc.get("title", "")
+                    desc = doc.get("description", "")
+                    truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
+
+                    bm25_rank = res.get("bm25_rank")
+                    sem_rank = res.get("semantic_rank")
+
+                    bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
+                    sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
+
+                    print(f"{i}. {title}")
+                    print(f"   Cross Encoder Score: {res['cross_encoder_score']:.3f}")
                     print(f"   RRF Score: {res['rrf_score']:.3f}")
                     print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
                     print(f"   {truncated_desc}")

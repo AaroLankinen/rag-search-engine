@@ -1,9 +1,9 @@
-"""Unit tests for the batch rerank method in hybrid_search_cli.py.
+"""Unit tests for the rerank methods in hybrid_search_cli.py.
 
 Tests cover JSON parsing logic, bracket extraction, result ordering,
-and fallback behavior. Integration tests that require heavy imports
-(sentence_transformers, OpenAI) are excluded—those are validated via
-the bootdev CLI tests.
+cross-encoder score sorting, and fallback behavior. Integration tests
+that require heavy imports (sentence_transformers, OpenAI) are
+excluded—those are validated via the bootdev CLI tests.
 """
 
 import json
@@ -188,6 +188,111 @@ class TestBatchResultOrdering(unittest.TestCase):
         ordered = self._order_results(fallback_ids, results, 3)
         ids = [int(r["document"]["id"]) for r in ordered]
         self.assertEqual(ids, [10, 20, 30])
+
+
+class TestCrossEncoderResultOrdering(unittest.TestCase):
+    """Tests the cross-encoder score-based sorting logic.
+
+    The cross_encoder method attaches a cross_encoder_score to each result
+    and sorts by (cross_encoder_score, rrf_score, -doc_id) descending.
+    """
+
+    def _make_result(self, doc_id, cross_score, rrf_score=0.03):
+        """Create a mock result dict with a cross-encoder score.
+
+        Args:
+            doc_id: The movie document ID.
+            cross_score: The cross-encoder relevance score.
+            rrf_score: The RRF score (default 0.03).
+
+        Returns:
+            A dict matching the cross_encoder rerank result format.
+        """
+        return {
+            "document": {"id": doc_id, "title": f"Movie {doc_id}", "description": f"Desc {doc_id}"},
+            "rrf_score": rrf_score,
+            "bm25_rank": 1,
+            "semantic_rank": 1,
+            "cross_encoder_score": cross_score,
+        }
+
+    def _sort_results(self, results):
+        """Replicate the cross-encoder sorting logic from the CLI.
+
+        Args:
+            results: List of result dicts with cross_encoder_score.
+
+        Returns:
+            Sorted list of result dicts.
+        """
+        return sorted(
+            results,
+            key=lambda x: (x["cross_encoder_score"], x["rrf_score"], -int(x["document"]["id"])),
+            reverse=True,
+        )
+
+    def test_sorts_by_cross_encoder_score_descending(self):
+        """Results should be sorted by cross_encoder_score, highest first."""
+        results = [
+            self._make_result(1, 1.5),
+            self._make_result(2, 3.7),
+            self._make_result(3, -0.5),
+        ]
+        sorted_res = self._sort_results(results)
+        scores = [r["cross_encoder_score"] for r in sorted_res]
+        self.assertEqual(scores, [3.7, 1.5, -0.5])
+
+    def test_tiebreak_by_rrf_score(self):
+        """Equal cross-encoder scores should be broken by rrf_score."""
+        results = [
+            self._make_result(1, 2.0, rrf_score=0.01),
+            self._make_result(2, 2.0, rrf_score=0.05),
+        ]
+        sorted_res = self._sort_results(results)
+        ids = [int(r["document"]["id"]) for r in sorted_res]
+        self.assertEqual(ids, [2, 1])
+
+    def test_tiebreak_by_doc_id_ascending(self):
+        """Equal scores should further be broken by doc ID ascending."""
+        results = [
+            self._make_result(10, 2.0, rrf_score=0.03),
+            self._make_result(5, 2.0, rrf_score=0.03),
+        ]
+        sorted_res = self._sort_results(results)
+        ids = [int(r["document"]["id"]) for r in sorted_res]
+        # Lower doc ID first (ascending) when scores are equal
+        self.assertEqual(ids, [5, 10])
+
+    def test_negative_scores_handled(self):
+        """Cross-encoder scores can be negative; sorting should still work."""
+        results = [
+            self._make_result(1, -3.0),
+            self._make_result(2, -1.0),
+            self._make_result(3, -5.0),
+        ]
+        sorted_res = self._sort_results(results)
+        scores = [r["cross_encoder_score"] for r in sorted_res]
+        self.assertEqual(scores, [-1.0, -3.0, -5.0])
+
+    def test_limit_applied_after_sorting(self):
+        """Only the top N results should be kept after sorting."""
+        results = [self._make_result(i, float(i)) for i in range(1, 6)]
+        sorted_res = self._sort_results(results)[:3]
+        self.assertEqual(len(sorted_res), 3)
+        ids = [int(r["document"]["id"]) for r in sorted_res]
+        self.assertEqual(ids, [5, 4, 3])
+
+    def test_single_result(self):
+        """A single result should be returned unchanged."""
+        results = [self._make_result(42, 7.5)]
+        sorted_res = self._sort_results(results)
+        self.assertEqual(len(sorted_res), 1)
+        self.assertEqual(int(sorted_res[0]["document"]["id"]), 42)
+
+    def test_empty_results(self):
+        """An empty result list should return an empty list."""
+        sorted_res = self._sort_results([])
+        self.assertEqual(sorted_res, [])
 
 
 if __name__ == "__main__":

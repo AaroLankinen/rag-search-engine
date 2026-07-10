@@ -198,7 +198,7 @@ uv run cli/hybrid_search_cli.py rrf-search "your query" [--k K] [--limit LIMIT] 
 - **`--k`** *(Optional, default: `60`)*: RRF constant ranking parameter.
 - **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
 - **`--enhance`** *(Optional, default: `None`)*: Query enhancement method (e.g. `spell` for LLM spell correction, `rewrite` for google-style query rewriting).
-- **`--rerank-method`** *(Optional, choices: `individual`, `batch`)*: LLM-based reranking method. `individual` scores each candidate movie independently via separate LLM calls. `batch` sends all candidates (5× the limit) in a single LLM prompt and parses a ranked JSON array response. Both methods fall back to HuggingFace or OpenRouter for LLM access. If omitted, no reranking is applied.
+- **`--rerank-method`** *(Optional, choices: `individual`, `batch`, `cross_encoder`)*: LLM-based reranking method. `individual` scores each candidate movie independently via separate LLM calls. `batch` sends all candidates (5× the limit) in a single LLM prompt and parses a ranked JSON array response. `cross_encoder` uses a sentence-transformers `CrossEncoder` model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) to compute relevance scores for all query-document pairs in a single batch, sorting by cross-encoder score. Both `individual` and `batch` fall back to HuggingFace or OpenRouter for LLM access. If omitted, no reranking is applied.
 
 ---
 
