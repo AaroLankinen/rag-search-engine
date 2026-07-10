@@ -27,7 +27,7 @@ def main() -> None:
     rrf_search_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
     rrf_search_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
     rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Query enhancement method")
-    rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual"], help="Reranking method to use")
+    rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual", "batch"], help="Reranking method to use")
 
     args = parser.parse_args()
 
@@ -235,6 +235,150 @@ Score:"""
                     
                     print(f"{i}. {title}")
                     print(f"   Re-rank Score: {res['re_rank_score']:.3f}/10")
+                    print(f"   RRF Score: {res['rrf_score']:.3f}")
+                    print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
+                    print(f"   {truncated_desc}")
+                    print()
+            elif getattr(args, "rerank_method", None) == "batch":
+                import os
+                import time
+                import re
+                from dotenv import load_dotenv
+                from openai import OpenAI
+
+                # Resolve the absolute path to the workspace .env file
+                cli_dir = os.path.dirname(os.path.abspath(__file__))
+                dotenv_path = os.path.join(os.path.dirname(cli_dir), '.env')
+                load_dotenv(dotenv_path, override=True)
+
+                hf_token = os.environ.get("HF_ACCESS_TOKEN") or os.environ.get("HF_TOKEN")
+                if not hf_token:
+                    raise RuntimeError("HF_ACCESS_TOKEN environment variable not set")
+
+                model = os.environ.get("HF_RERANK_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+
+                try:
+                    test_client = OpenAI(
+                        base_url="https://router.huggingface.co/v1",
+                        api_key=hf_token,
+                    )
+                    # Verify permission with a quick call
+                    test_client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": "ping"}],
+                        max_tokens=1,
+                    )
+                    client = test_client
+                except Exception:
+                    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+                    if openrouter_key:
+                        client = OpenAI(
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=openrouter_key,
+                        )
+                        model = "meta-llama/llama-3.3-70b-instruct"
+                    else:
+                        client = OpenAI(
+                            base_url="https://router.huggingface.co/v1",
+                            api_key=hf_token,
+                        )
+
+                results = hybrid_search.rrf_search(query, args.k, args.limit * 5)
+
+                print(f"Re-ranking top {args.limit} results using batch method...")
+                print(f"Reciprocal Rank Fusion Results for '{query}' (k={args.k}):\n")
+
+                # Build the document list string for the batch prompt
+                doc_list_str = ""
+                result_by_id = {}
+                for res in results:
+                    doc = res["document"]
+                    doc_id = int(doc["id"])
+                    title = doc.get("title", "")
+                    desc = doc.get("description", "") or doc.get("document", "")
+                    truncated_desc = desc[:200] + "..." if len(desc) > 200 else desc
+                    doc_list_str += f"ID: {doc_id} | Title: {title} | Description: {truncated_desc}\n"
+                    result_by_id[doc_id] = res
+
+                prompt = f"""Rank the movies listed below by relevance to the following search query.
+
+Query: "{query}"
+
+Movies:
+{doc_list_str}
+Return the movie IDs in order of relevance, best match first.
+
+Your response must be a raw JSON array of integers.
+Do not wrap the JSON in Markdown. Do not use a ```json code block.
+Do not include any explanatory text.
+
+For example:
+[75, 12, 34, 2, 1]
+
+Ranking:"""
+
+                ranked_ids = None
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "user", "content": prompt},
+                            ],
+                            temperature=0.0,
+                            max_tokens=512,
+                        )
+                        raw_text = response.choices[0].message.content.strip()
+                        # Try to extract a JSON array from the response
+                        # Find the first '[' and last ']' to handle any wrapping text
+                        bracket_start = raw_text.find('[')
+                        bracket_end = raw_text.rfind(']')
+                        if bracket_start != -1 and bracket_end != -1:
+                            json_str = raw_text[bracket_start:bracket_end + 1]
+                            parsed = json.loads(json_str)
+                            if isinstance(parsed, list) and all(isinstance(x, int) for x in parsed):
+                                ranked_ids = parsed
+                                break
+                        # If parsing failed, retry
+                    except Exception:
+                        if attempt < max_retries - 1:
+                            time.sleep(1)
+                        continue
+
+                if ranked_ids is None:
+                    # Fallback: use the original RRF order
+                    ranked_ids = [int(res["document"]["id"]) for res in results]
+
+                # Build the output list in the order returned by the LLM
+                seen = set()
+                ordered_results = []
+                for doc_id in ranked_ids:
+                    if doc_id in result_by_id and doc_id not in seen:
+                        seen.add(doc_id)
+                        ordered_results.append(result_by_id[doc_id])
+
+                # Append any results not mentioned by the LLM at the end (in original order)
+                for res in results:
+                    doc_id = int(res["document"]["id"])
+                    if doc_id not in seen:
+                        seen.add(doc_id)
+                        ordered_results.append(res)
+
+                for i, res in enumerate(ordered_results[:args.limit], start=1):
+                    doc = res["document"]
+                    title = doc.get("title", "")
+                    desc = doc.get("description", "")
+                    truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
+
+                    bm25_rank = res.get("bm25_rank")
+                    sem_rank = res.get("semantic_rank")
+
+                    bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
+                    sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
+
+                    print(f"{i}. {title}")
+                    print(f"   Re-rank Rank: {i}")
                     print(f"   RRF Score: {res['rrf_score']:.3f}")
                     print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
                     print(f"   {truncated_desc}")
