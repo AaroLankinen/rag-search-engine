@@ -181,6 +181,8 @@ class HybridSearch:
                 "rrf_score": rrf_score,
                 "bm25_score": norm_bm25[d_id],
                 "semantic_score": norm_sem[d_id],
+                "bm25_rank": b_r,
+                "semantic_rank": s_r,
             })
 
         # 6. Sort by rrf_score descending; ties broken by document ID ascending
