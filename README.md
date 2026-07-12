@@ -172,19 +172,33 @@ uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK
 
 ---
 
-### Search Evaluation Operations
+### Hybrid Search Operations
 
-Supported via `cli/evaluation_cli.py`:
+Supported via `cli/hybrid_search_cli.py`:
 
-#### `--search-method`
-Evaluates the retrieval systems on a query dataset, reporting Precision@limit.
+#### `normalize`
+Normalizes a list of numeric scores to the interval 0 to 1.
 ```bash
-uv run cli/evaluation_cli.py [--limit LIMIT] [--dataset DATASET] [--index-dir INDEX_DIR] [--search-method SEARCH_METHOD]
+uv run cli/hybrid_search_cli.py normalize <score1> <score2> [score3 ...]
 ```
-- **`--limit`** *(Optional, default: `5`)*: Evaluated retrieval result cutoff (`k` for Precision@k).
-- **`--dataset`** *(Optional, default: `data/golden_dataset.json`)*: Path to the dataset JSON file containing test cases.
-- **`--index-dir`** *(Optional, default: `data/index`)*: Path to the directory containing serialized index/embedding files.
-- **`--search-method`** *(Optional, default: `hybrid`)*: Retrieval mode to evaluate (`bm25`, `semantic`, or `hybrid` using Reciprocal Rank Fusion).
+
+#### `weighted-search`
+Performs weighted hybrid search, combining normalized Okapi BM25 and semantic similarity scores.
+```bash
+uv run cli/hybrid_search_cli.py weighted-search "your query" [--alpha ALPHA] [--limit LIMIT] [--data_file DATA_FILE] [--save_dir SAVE_DIR]
+```
+- **`--alpha`** *(Optional, default: `0.5`)*: Tunable parameter (0 to 1) to weigh between semantic search (`alpha`) and BM25 search (`1 - alpha`).
+- **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
+
+#### `rrf-search`
+Performs Reciprocal Rank Fusion (RRF) hybrid search on top retrieved results.
+```bash
+uv run cli/hybrid_search_cli.py rrf-search "your query" [--k K] [--limit LIMIT] [--data_file DATA_FILE] [--save_dir SAVE_DIR] [--enhance ENHANCE] [--rerank-method RERANK_METHOD]
+```
+- **`--k`** *(Optional, default: `60`)*: RRF constant ranking parameter.
+- **`--limit`** *(Optional, default: `5`)*: Maximum number of search results to return.
+- **`--enhance`** *(Optional, default: `None`)*: Query enhancement method (e.g. `spell` for LLM spell correction, `rewrite` for google-style query rewriting).
+- **`--rerank-method`** *(Optional, choices: `individual`, `batch`, `cross_encoder`)*: LLM-based reranking method. `individual` scores each candidate movie independently via separate LLM calls. `batch` sends all candidates (5× the limit) in a single LLM prompt and parses a ranked JSON array response. `cross_encoder` uses a sentence-transformers `CrossEncoder` model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) to compute relevance scores for all query-document pairs in a single batch, sorting by cross-encoder score. Both `individual` and `batch` fall back to HuggingFace or OpenRouter for LLM access. If omitted, no reranking is applied.
 
 ---
 
@@ -198,8 +212,10 @@ uv run cli/evaluation_cli.py [--limit LIMIT] [--dataset DATASET] [--index-dir IN
 │   ├── evaluation_cli.py      # Search evaluation CLI entrypoint
 │   ├── keyword_search_cli.py  # Keyword search engine CLI entrypoint
 │   ├── semantic_search_cli.py # Semantic search engine CLI entrypoint
+│   ├── hybrid_search_cli.py   # Hybrid search (Weighted & RRF) CLI entrypoint
 │   └── lib/
-│       └── semantic_search.py # Core SemanticSearch class & library functions
+│       ├── semantic_search.py # Core SemanticSearch class & library functions
+│       └── hybrid_search.py   # Core HybridSearch class, normalize & weighted logic
 ├── data/
 │   ├── movies.json            # Default dataset (~26MB, movies catalog)
 │   └── stopwords.txt          # Default stopwords list

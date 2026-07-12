@@ -95,7 +95,7 @@ class InvertedIndex:
     # @function __add_document: add a document to the inverted index
     # @return: None 
     def __add_document(self, doc_id: str, doc: str) -> None:
-        self.doc_map[doc_id] = doc
+        self.doc_map[doc_id] = doc.split("\n", 1)[0]
         for token in preprocess_text(doc):
             if token not in self.index:
                 self.index[token] = []
