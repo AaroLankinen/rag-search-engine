@@ -1,4 +1,7 @@
 import os
+import logging
+
+logger = logging.getLogger("hybrid_search")
 
 try:
     from cli.keyword_search_cli import InvertedIndex
@@ -123,10 +126,14 @@ class HybridSearch:
             A list of result dicts, each containing 'document', 'rrf_score',
             'bm25_score', and 'semantic_score'.
         """
+        logger.debug("Starting RRF Search. Query: '%s', k: %d, limit: %d", query, k, limit)
+
         # 1. Get semantic scores for all chunks, aggregate max per document
+        logger.debug("Retrieving chunk semantic search results...")
         chunk_results = self.semantic_search.search(
             query, limit=len(self.semantic_search.chunk_embeddings)
         )
+        logger.debug("Total semantic search chunk results returned: %d", len(chunk_results))
 
         semantic_raw = {}
         for res in chunk_results:
@@ -144,17 +151,38 @@ class HybridSearch:
         sem_limit = 500
         sem_top = sem_ranked[:sem_limit]
         sem_rank = {d_id: rank for rank, (d_id, _) in enumerate(sem_top, 1)}
+        logger.debug(
+            "Semantic search doc aggregation completed. Total docs with scores: %d. Top %d selected. Highest score: %s (doc: %s), Lowest in top %d: %s (doc: %s)",
+            len(semantic_raw),
+            len(sem_top),
+            f"{sem_top[0][1]:.4f}" if sem_top else "N/A",
+            sem_top[0][0] if sem_top else "N/A",
+            len(sem_top),
+            f"{sem_top[-1][1]:.4f}" if sem_top else "N/A",
+            sem_top[-1][0] if sem_top else "N/A",
+        )
 
         # 3. Get top 500 BM25 documents
+        logger.debug("Running BM25 search for top %d documents...", bm25_limit := 500)
         self.idx.load(self.index_dir)
-        bm25_limit = 500
         bm25_top_ids = self.idx.bm25_search(query, limit=bm25_limit)
         bm25_rank = {d_id: rank for rank, d_id in enumerate(bm25_top_ids, 1)}
+        logger.debug(
+            "BM25 search completed. Total docs returned: %d. Highest rank doc: %s, Lowest rank doc: %s",
+            len(bm25_top_ids),
+            bm25_top_ids[0] if bm25_top_ids else "N/A",
+            bm25_top_ids[-1] if bm25_top_ids else "N/A",
+        )
 
         # 4. Candidate pool is the union of top lists
         candidate_ids = list(set(sem_rank.keys()) | set(bm25_rank.keys()))
+        logger.debug(
+            "RRF candidate pool formed. Union of Top Semantic & Top BM25 contains %d unique documents.",
+            len(candidate_ids),
+        )
 
         # Compute raw scores for normalization/display
+        logger.debug("Normalizing scores for candidates...")
         bm25_raw = {d_id: self.idx.bm25(d_id, query) for d_id in candidate_ids}
         raw_sem_list = [semantic_raw.get(d_id, 0.0) for d_id in candidate_ids]
         raw_bm25_list = [bm25_raw[d_id] for d_id in candidate_ids]
@@ -168,6 +196,7 @@ class HybridSearch:
         # 5. Compute RRF score for each candidate
         doc_map = {str(doc["id"]): doc for doc in self.documents}
         results = []
+        logger.debug("Calculating RRF scores for all %d candidates...", len(candidate_ids))
         for d_id in candidate_ids:
             s_r = sem_rank.get(d_id)
             b_r = bm25_rank.get(d_id)
@@ -191,6 +220,34 @@ class HybridSearch:
             key=lambda x: (x["rrf_score"], -int(x["document"]["id"])),
             reverse=True,
         )
+
+        logger.debug("RRF scores calculated and sorted. Top 5 candidates:")
+        for rank, res in enumerate(sorted_results[:5], start=1):
+            doc = res["document"]
+            logger.debug(
+                "  Rank %d: %s (ID: %s) -> RRF Score: %.6f, BM25 Rank: %s, Semantic Rank: %s",
+                rank,
+                doc.get("title", ""),
+                doc.get("id"),
+                res["rrf_score"],
+                str(res["bm25_rank"]),
+                str(res["semantic_rank"]),
+            )
+
+        # Log details about the specific movie the user mentioned, if present in candidates
+        target_title = "The Land Before Time XI: Invasion of the Tinysauruses"
+        for res in results:
+            if res["document"].get("title") == target_title:
+                logger.debug(
+                    "Target Movie Info - Title: '%s', ID: %s, BM25 Rank: %s, Semantic Rank: %s, RRF Score: %.6f",
+                    target_title,
+                    res["document"].get("id"),
+                    str(res["bm25_rank"]),
+                    str(res["semantic_rank"]),
+                    res["rrf_score"],
+                )
+                break
+
         return sorted_results[:limit]
 
 def normalize_scores(scores: list[float]) -> list[float]:

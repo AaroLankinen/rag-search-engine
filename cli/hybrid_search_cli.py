@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import logging
 try:
     from cli.lib.hybrid_search import normalize_scores,HybridSearch
 except ImportError:
@@ -28,6 +29,7 @@ def main() -> None:
     rrf_search_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
     rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Query enhancement method")
     rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual", "batch", "cross_encoder"], help="Reranking method to use")
+    rrf_search_parser.add_argument("--debug", action="store_true", help="Enable comprehensive debug logging")
 
     args = parser.parse_args()
 
@@ -67,6 +69,15 @@ def main() -> None:
                 print(f"  BM25: {res['bm25_score']:.3f}, Semantic: {res['semantic_score']:.3f}")
                 print(f"  {truncated_desc}")
         case "rrf-search":
+            if getattr(args, "debug", False):
+                logging.basicConfig(
+                    level=logging.DEBUG,
+                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                    stream=sys.stderr
+                )
+            logger = logging.getLogger("hybrid_search_cli")
+            logger.debug("Debug logging enabled for RRF Search CLI.")
+
             try:
                 with open(args.data_file, "r", encoding="utf-8") as f:
                     movies_data = json.load(f)
@@ -386,7 +397,9 @@ Ranking:"""
             elif getattr(args, "rerank_method", None) == "cross_encoder":
                 from sentence_transformers import CrossEncoder
 
+                logger.debug("Requesting RRF search results. k: %d, limit for reranking: %d", args.k, args.limit * 5)
                 results = hybrid_search.rrf_search(query, args.k, args.limit * 5)
+                logger.debug("RRF search returned %d candidate documents for cross-encoder reranking.", len(results))
 
                 print(f"Re-ranking top {args.limit} results using cross_encoder method...")
                 print(f"Reciprocal Rank Fusion Results for '{query}' (k={args.k}):\n")
@@ -398,8 +411,9 @@ Ranking:"""
                     doc_text = f"{doc.get('title', '')} - {doc.get('description', '') or doc.get('document', '')}"
                     pairs.append((query, doc_text))
 
-                # Score all pairs in a single batch
+                logger.debug("Loading CrossEncoder model 'cross-encoder/ms-marco-MiniLM-L-6-v2'...")
                 cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+                logger.debug("Computing cross-encoder scores for %d candidate pairs...", len(pairs))
                 scores = cross_encoder.predict(pairs)
 
                 # Attach scores to results
@@ -413,6 +427,39 @@ Ranking:"""
                     key=lambda x: (x["cross_encoder_score"], x["rrf_score"], -int(x["document"]["id"])),
                     reverse=True,
                 )
+
+                logger.debug("CrossEncoder reranking completed. Scores for top candidates:")
+                for rank, res in enumerate(sorted_results, start=1):
+                    doc = res["document"]
+                    logger.debug(
+                        "  Rerank %d: %s (ID: %s) -> CrossEncoder Score: %.4f, RRF Score: %.6f",
+                        rank,
+                        doc.get("title", ""),
+                        doc.get("id"),
+                        res["cross_encoder_score"],
+                        res["rrf_score"],
+                    )
+
+                # Log details about why "The Land Before Time XI" didn't show up in top results
+                target_title = "The Land Before Time XI: Invasion of the Tinysauruses"
+                target_res = next((res for res in sorted_results if res["document"].get("title") == target_title), None)
+                if target_res:
+                    target_rank = sorted_results.index(target_res) + 1
+                    logger.debug(
+                        "RERANK TARGET INFO - '%s' (ID: %s) was reranked as rank %d out of %d candidates. CrossEncoder Score: %.4f (vs 5th-place score: %.4f)",
+                        target_title,
+                        target_res["document"].get("id"),
+                        target_rank,
+                        len(sorted_results),
+                        target_res["cross_encoder_score"],
+                        sorted_results[4]["cross_encoder_score"] if len(sorted_results) >= 5 else 0.0,
+                    )
+                else:
+                    logger.debug(
+                        "RERANK TARGET INFO - '%s' was NOT in the top %d candidate pool retrieved by RRF search.",
+                        target_title,
+                        args.limit * 5,
+                    )
 
                 for i, res in enumerate(sorted_results[:args.limit], start=1):
                     doc = res["document"]
