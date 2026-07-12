@@ -144,14 +144,16 @@ def main() -> None:
             title = full_doc.split("\n", 1)[0]
             retrieved_titles.append(title)
 
-        # Calculate Precision@limit
+        # Calculate Precision@limit and Recall@limit
         relevant_set = set(relevant_docs)
         relevant_retrieved = sum(1 for title in retrieved_titles if title in relevant_set)
         precision = relevant_retrieved / limit if limit > 0 else 0.0
+        recall = relevant_retrieved / len(relevant_docs) if len(relevant_docs) > 0 else 0.0
 
         # Print formatting
         print(f"- Query: {query}")
         print(f"  - Precision@{limit}: {precision:.4f}")
+        print(f"  - Recall@{limit}: {recall:.4f}")
         print(f"  - Retrieved: {', '.join(retrieved_titles)}")
         print(f"  - Relevant: {', '.join(relevant_docs)}")
 
