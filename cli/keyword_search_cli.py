@@ -57,9 +57,9 @@ class InvertedIndex:
             if not self.doc_map:
                 return 0.0
             total_len = 0
-            for doc_id, doc in self.doc_map.items():
+            for doc_id in self.doc_map.keys():
                 if doc_id not in self._doc_lens:
-                    self._doc_lens[doc_id] = len(preprocess_text(doc))
+                    self._doc_lens[doc_id] = sum(self.term_frequencies[doc_id].values())
                 total_len += self._doc_lens[doc_id]
             self._avg_doc_len = total_len / len(self.doc_map)
         return self._avg_doc_len
@@ -68,7 +68,7 @@ class InvertedIndex:
     # @return: float
     def get_bm25_tf(self, doc_id: str, term: str, k1: float = K1, b: float = B) -> float:
         if doc_id not in self._doc_lens:
-            self._doc_lens[doc_id] = len(preprocess_text(self.doc_map[doc_id]))
+            self._doc_lens[doc_id] = sum(self.term_frequencies[doc_id].values())
         doc_len = self._doc_lens[doc_id]
         tf = self.get_tf(doc_id, term)
         return (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / self.avg_doc_len))    

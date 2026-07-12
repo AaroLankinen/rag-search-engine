@@ -30,6 +30,7 @@ def main() -> None:
     rrf_search_parser.add_argument("--enhance", type=str, choices=["spell", "rewrite", "expand"], help="Query enhancement method")
     rrf_search_parser.add_argument("--rerank-method", type=str, choices=["individual", "batch", "cross_encoder"], help="Reranking method to use")
     rrf_search_parser.add_argument("--debug", action="store_true", help="Enable comprehensive debug logging")
+    rrf_search_parser.add_argument("--evaluate", action="store_true", help="Evaluate search results using an LLM on a 0-3 scale")
 
     args = parser.parse_args()
 
@@ -232,24 +233,26 @@ Score:"""
                     reverse=True,
                 )
 
-                for i, res in enumerate(sorted_reranked[:args.limit], start=1):
-                    doc = res["document"]
-                    title = doc.get("title", "")
-                    desc = doc.get("description", "")
-                    truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
-                    
-                    bm25_rank = res.get("bm25_rank")
-                    sem_rank = res.get("semantic_rank")
-                    
-                    bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
-                    sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
-                    
-                    print(f"{i}. {title}")
-                    print(f"   Re-rank Score: {res['re_rank_score']:.3f}/10")
-                    print(f"   RRF Score: {res['rrf_score']:.3f}")
-                    print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
-                    print(f"   {truncated_desc}")
-                    print()
+                final_results = sorted_reranked[:args.limit]
+                if not getattr(args, "evaluate", False):
+                    for i, res in enumerate(final_results, start=1):
+                        doc = res["document"]
+                        title = doc.get("title", "")
+                        desc = doc.get("description", "")
+                        truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
+                        
+                        bm25_rank = res.get("bm25_rank")
+                        sem_rank = res.get("semantic_rank")
+                        
+                        bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
+                        sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
+                        
+                        print(f"{i}. {title}")
+                        print(f"   Re-rank Score: {res['re_rank_score']:.3f}/10")
+                        print(f"   RRF Score: {res['rrf_score']:.3f}")
+                        print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
+                        print(f"   {truncated_desc}")
+                        print()
             elif getattr(args, "rerank_method", None) == "batch":
                 import os
                 import time
@@ -376,24 +379,26 @@ Ranking:"""
                         seen.add(doc_id)
                         ordered_results.append(res)
 
-                for i, res in enumerate(ordered_results[:args.limit], start=1):
-                    doc = res["document"]
-                    title = doc.get("title", "")
-                    desc = doc.get("description", "")
-                    truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
+                final_results = ordered_results[:args.limit]
+                if not getattr(args, "evaluate", False):
+                    for i, res in enumerate(final_results, start=1):
+                        doc = res["document"]
+                        title = doc.get("title", "")
+                        desc = doc.get("description", "")
+                        truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
 
-                    bm25_rank = res.get("bm25_rank")
-                    sem_rank = res.get("semantic_rank")
+                        bm25_rank = res.get("bm25_rank")
+                        sem_rank = res.get("semantic_rank")
 
-                    bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
-                    sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
+                        bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
+                        sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
 
-                    print(f"{i}. {title}")
-                    print(f"   Re-rank Rank: {i}")
-                    print(f"   RRF Score: {res['rrf_score']:.3f}")
-                    print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
-                    print(f"   {truncated_desc}")
-                    print()
+                        print(f"{i}. {title}")
+                        print(f"   Re-rank Rank: {i}")
+                        print(f"   RRF Score: {res['rrf_score']:.3f}")
+                        print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
+                        print(f"   {truncated_desc}")
+                        print()
             elif getattr(args, "rerank_method", None) == "cross_encoder":
                 from sentence_transformers import CrossEncoder
 
@@ -461,36 +466,141 @@ Ranking:"""
                         args.limit * 5,
                     )
 
-                for i, res in enumerate(sorted_results[:args.limit], start=1):
-                    doc = res["document"]
-                    title = doc.get("title", "")
-                    desc = doc.get("description", "")
-                    truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
+                final_results = sorted_results[:args.limit]
+                if not getattr(args, "evaluate", False):
+                    for i, res in enumerate(final_results, start=1):
+                        doc = res["document"]
+                        title = doc.get("title", "")
+                        desc = doc.get("description", "")
+                        truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
 
-                    bm25_rank = res.get("bm25_rank")
-                    sem_rank = res.get("semantic_rank")
+                        bm25_rank = res.get("bm25_rank")
+                        sem_rank = res.get("semantic_rank")
 
-                    bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
-                    sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
+                        bm25_rank_str = str(bm25_rank) if bm25_rank is not None else "N/A"
+                        sem_rank_str = str(sem_rank) if sem_rank is not None else "N/A"
 
-                    print(f"{i}. {title}")
-                    print(f"   Cross Encoder Score: {res['cross_encoder_score']:.3f}")
-                    print(f"   RRF Score: {res['rrf_score']:.3f}")
-                    print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
-                    print(f"   {truncated_desc}")
-                    print()
+                        print(f"{i}. {title}")
+                        print(f"   Cross Encoder Score: {res['cross_encoder_score']:.3f}")
+                        print(f"   RRF Score: {res['rrf_score']:.3f}")
+                        print(f"   BM25 Rank: {bm25_rank_str}, Semantic Rank: {sem_rank_str}")
+                        print(f"   {truncated_desc}")
+                        print()
             else:
                 results = hybrid_search.rrf_search(query, args.k, args.limit)
-                for i, res in enumerate(results, start=1):
+                final_results = results
+                if not getattr(args, "evaluate", False):
+                    for i, res in enumerate(final_results, start=1):
+                        doc = res["document"]
+                        title = doc.get("title", "")
+                        desc = doc.get("description", "")
+                        truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
+                        
+                        print(f"{i}. {title}")
+                        print(f"  RRF Score: {res['rrf_score']:.3f}")
+                        print(f"  BM25: {res['bm25_score']:.3f}, Semantic: {res['semantic_score']:.3f}")
+                        print(f"  {truncated_desc}")
+
+            if getattr(args, "evaluate", False):
+                import os
+                import time
+                from dotenv import load_dotenv
+                from openai import OpenAI
+
+                # Resolve the absolute path to the workspace .env file
+                cli_dir = os.path.dirname(os.path.abspath(__file__))
+                dotenv_path = os.path.join(os.path.dirname(cli_dir), '.env')
+                load_dotenv(dotenv_path, override=True)
+
+                openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+                hf_token = os.environ.get("HF_ACCESS_TOKEN") or os.environ.get("HF_TOKEN")
+
+                if openrouter_key:
+                    eval_client = OpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key=openrouter_key,
+                    )
+                    eval_model = "openrouter/free"
+                elif hf_token:
+                    eval_client = OpenAI(
+                        base_url="https://router.huggingface.co/v1",
+                        api_key=hf_token,
+                    )
+                    eval_model = os.environ.get("HF_RERANK_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+                else:
+                    raise RuntimeError("Neither OPENROUTER_API_KEY nor HF_ACCESS_TOKEN is set in environment")
+
+                # Build the prompt with movie titles and descriptions mapped to their IDs
+                movie_details = []
+                for res in final_results:
                     doc = res["document"]
+                    movie_details.append(
+                        f"ID: {doc['id']} | Title: {doc.get('title', '')} | Description: {doc.get('description', '') or doc.get('document', '')}"
+                    )
+                movie_list_str = "\n".join(movie_details)
+
+                prompt = f"""You are an expert search quality evaluator.
+Evaluate the relevance of the following search results for the query: "{query}".
+
+Scale:
+3: Highly relevant (exactly what the user is looking for, or directly addresses the query)
+2: Relevant (related to the query, a good match)
+1: Marginally relevant (tangentially related, but not a strong match)
+0: Not relevant (unrelated to the query)
+
+Movies to evaluate:
+{movie_list_str}
+
+Your response must be a JSON object mapping each movie ID (as a string) to its integer relevance score (0, 1, 2, or 3).
+Do not wrap the response in Markdown. Do not include any explanations or other text.
+Example response:
+{{
+  "123": 2,
+  "456": 2,
+  "789": 0
+}}
+
+Relevance Mapping:"""
+
+                scores_map = {}
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        response = eval_client.chat.completions.create(
+                            model=eval_model,
+                            messages=[{"role": "user", "content": prompt}],
+                            temperature=0.0,
+                            max_tokens=256,
+                        )
+                        raw_text = response.choices[0].message.content.strip()
+                        
+                        # Strip any markdown JSON wrapper
+                        if raw_text.startswith("```"):
+                            lines = raw_text.split("\n")
+                            if lines[0].startswith("```"):
+                                lines = lines[1:]
+                            if lines[-1].startswith("```"):
+                                lines = lines[:-1]
+                            raw_text = "\n".join(lines).strip()
+                            
+                        parsed = json.loads(raw_text)
+                        if isinstance(parsed, dict):
+                            for k_id, score in parsed.items():
+                                scores_map[str(k_id)] = int(score)
+                            break
+                    except Exception:
+                        if attempt < max_retries - 1:
+                            time.sleep(1)
+                        continue
+
+                # Print final results in the requested format
+                for i, res in enumerate(final_results, start=1):
+                    doc = res["document"]
+                    d_id = str(doc["id"])
                     title = doc.get("title", "")
-                    desc = doc.get("description", "")
-                    truncated_desc = desc[:100] + "..." if len(desc) > 100 else desc
-                    
-                    print(f"{i}. {title}")
-                    print(f"  RRF Score: {res['rrf_score']:.3f}")
-                    print(f"  BM25: {res['bm25_score']:.3f}, Semantic: {res['semantic_score']:.3f}")
-                    print(f"  {truncated_desc}")
+                    score = scores_map.get(d_id, 0)
+                    score = min(max(score, 0), 3)
+                    print(f"{i}. {title}: {score}/3")
         case _: 
             parser.print_help()
 
