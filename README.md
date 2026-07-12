@@ -209,6 +209,7 @@ uv run cli/hybrid_search_cli.py rrf-search "your query" [--k K] [--limit LIMIT] 
 ├── cli/
 │   ├── __init__.py
 │   ├── constants.py           # BM25 parameters: k1=1.5, b=0.75
+│   ├── evaluation_cli.py      # Search evaluation CLI entrypoint
 │   ├── keyword_search_cli.py  # Keyword search engine CLI entrypoint
 │   ├── semantic_search_cli.py # Semantic search engine CLI entrypoint
 │   ├── hybrid_search_cli.py   # Hybrid search (Weighted & RRF) CLI entrypoint
@@ -221,6 +222,7 @@ uv run cli/hybrid_search_cli.py rrf-search "your query" [--k K] [--limit LIMIT] 
 ├── docs/
 │   └── api.md                 # Detailed developer API documentation
 ├── tests/
+│   ├── test_evaluation.py     # Evaluation CLI unit test suite
 │   ├── test_keyword_search.py # Keyword search unit test suite
 │   └── test_semantic_search.py# Semantic search unit test suite
 ├── pyproject.toml             # Project dependency specification
