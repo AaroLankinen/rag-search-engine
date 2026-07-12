@@ -73,6 +73,7 @@ class TestEvaluationCLI(unittest.TestCase):
             self.assertIn("- Query: test query", output)
             self.assertIn("Precision@2:", output)
             self.assertIn("Recall@2:", output)
+            self.assertIn("F1 Score:", output)
             self.assertIn("Retrieved:", output)
             self.assertIn("Relevant: Movie A, Movie B", output)
 
