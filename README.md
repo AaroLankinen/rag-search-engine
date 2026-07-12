@@ -172,6 +172,22 @@ uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK
 
 ---
 
+### Search Evaluation Operations
+
+Supported via `cli/evaluation_cli.py`:
+
+#### `--search-method`
+Evaluates the retrieval systems on a query dataset, reporting Precision@limit.
+```bash
+uv run cli/evaluation_cli.py [--limit LIMIT] [--dataset DATASET] [--index-dir INDEX_DIR] [--search-method SEARCH_METHOD]
+```
+- **`--limit`** *(Optional, default: `5`)*: Evaluated retrieval result cutoff (`k` for Precision@k).
+- **`--dataset`** *(Optional, default: `data/golden_dataset.json`)*: Path to the dataset JSON file containing test cases.
+- **`--index-dir`** *(Optional, default: `data/index`)*: Path to the directory containing serialized index/embedding files.
+- **`--search-method`** *(Optional, default: `hybrid`)*: Retrieval mode to evaluate (`bm25`, `semantic`, or `hybrid` using Reciprocal Rank Fusion).
+
+---
+
 ## Project Structure
 
 ```
@@ -179,6 +195,7 @@ uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK
 ├── cli/
 │   ├── __init__.py
 │   ├── constants.py           # BM25 parameters: k1=1.5, b=0.75
+│   ├── evaluation_cli.py      # Search evaluation CLI entrypoint
 │   ├── keyword_search_cli.py  # Keyword search engine CLI entrypoint
 │   ├── semantic_search_cli.py # Semantic search engine CLI entrypoint
 │   └── lib/
@@ -189,6 +206,7 @@ uv run cli/semantic_search_cli.py chunk "your document text" [--chunk-size CHUNK
 ├── docs/
 │   └── api.md                 # Detailed developer API documentation
 ├── tests/
+│   ├── test_evaluation.py     # Evaluation CLI unit test suite
 │   ├── test_keyword_search.py # Keyword search unit test suite
 │   └── test_semantic_search.py# Semantic search unit test suite
 ├── pyproject.toml             # Project dependency specification

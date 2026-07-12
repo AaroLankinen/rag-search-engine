@@ -7,6 +7,12 @@ wheels/
 *.egg-info
 /data/
 /cache/
+.env
+.env.*
 
 # Virtual environments
 .venv
+
+# Environment variables
+.env
+.env.*
