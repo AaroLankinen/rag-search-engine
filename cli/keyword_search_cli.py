@@ -24,12 +24,13 @@ class InvertedIndex:
     doc_map: dict[str, str]
     term_frequencies: dict[str, collections.Counter]
 
-    def __init__(self, documents: list[str] | dict[str, str]):
+    def __init__(self, documents: list[str] | dict[str, str], stop_words: set[str] = None):
         self.index = {}
         self.doc_map = {}
         self.term_frequencies = collections.defaultdict(collections.Counter)
         self._avg_doc_len = None
         self._doc_lens = {}
+        self.stop_words = stop_words if stop_words is not None else set()
         if isinstance(documents, dict):
             for doc_id, doc in documents.items():
                 self.__add_document(doc_id, doc)
@@ -97,6 +98,8 @@ class InvertedIndex:
     def __add_document(self, doc_id: str, doc: str) -> None:
         self.doc_map[doc_id] = doc.split("\n", 1)[0]
         for token in preprocess_text(doc):
+            if token in self.stop_words:
+                continue
             if token not in self.index:
                 self.index[token] = []
             if doc_id not in self.index[token]:
@@ -208,7 +211,8 @@ def build_command(data_file: str, index_dir: str) -> None:
         for movie in movies
         if "id" in movie
     }
-    inverted_index = InvertedIndex(documents)
+    stop_words = load_stopwords("data/stopwords.txt")
+    inverted_index = InvertedIndex(documents, stop_words=stop_words)
     inverted_index.save(index_dir)
 
 
