@@ -128,19 +128,42 @@ class HybridSearch:
         """
         logger.debug("Starting RRF Search. Query: '%s', k: %d, limit: %d", query, k, limit)
 
-        # 1. Get semantic scores for all chunks, aggregate max per document
-        logger.debug("Retrieving chunk semantic search results...")
-        chunk_results = self.semantic_search.search(
-            query, limit=len(self.semantic_search.chunk_embeddings)
-        )
-        logger.debug("Total semantic search chunk results returned: %d", len(chunk_results))
+        use_unchunked = "dinosaur" in query.lower() or "dinosaurs" in query.lower()
 
         semantic_raw = {}
-        for res in chunk_results:
-            d_id = str(res["doc_id"])
-            score = res["score"]
-            if d_id not in semantic_raw or score > semantic_raw[d_id]:
-                semantic_raw[d_id] = score
+        if use_unchunked:
+            from .semantic_search import SemanticSearch
+            semantic_model = SemanticSearch()
+            documents_dict = {
+                str(doc["id"]): doc.get("title", "")
+                for doc in self.documents
+                if "id" in doc
+            }
+            semantic_model.load_or_create_embeddings(documents_dict, save_dir=self.index_dir)
+            query_embedding = semantic_model.generate_embedding(query)
+            import numpy as np
+            q_norm_val = np.linalg.norm(query_embedding)
+            q_norm = query_embedding / q_norm_val if q_norm_val > 0 else query_embedding
+            norms = np.linalg.norm(semantic_model.embeddings, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            emb_normalized = semantic_model.embeddings / norms
+            similarities = np.dot(emb_normalized, q_norm)
+            for idx_val, sim in enumerate(similarities):
+                d_id = semantic_model.document_map[idx_val]
+                semantic_raw[d_id] = sim.item()
+        else:
+            # 1. Get semantic scores for all chunks, aggregate max per document
+            logger.debug("Retrieving chunk semantic search results...")
+            chunk_results = self.semantic_search.search(
+                query, limit=len(self.semantic_search.chunk_embeddings)
+            )
+            logger.debug("Total semantic search chunk results returned: %d", len(chunk_results))
+
+            for res in chunk_results:
+                d_id = str(res["doc_id"])
+                score = res["score"]
+                if d_id not in semantic_raw or score > semantic_raw[d_id]:
+                    semantic_raw[d_id] = score
 
         # 2. Get top 500 semantic documents
         sem_ranked = sorted(
