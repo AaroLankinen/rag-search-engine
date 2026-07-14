@@ -237,7 +237,7 @@ def semantic_chunk_document(text: str, max_tokens: int = 200, overlap: int = 50,
                 chunk_str = " ".join(current_chunk).strip()
                 if chunk_str:
                     chunks.append(chunk_str)
-                if size_split and overlap > 0:
+                if overlap > 0:
                     current_chunk = current_chunk[-overlap:]
                 else:
                     current_chunk = []

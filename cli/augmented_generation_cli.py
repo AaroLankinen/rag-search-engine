@@ -38,6 +38,16 @@ def main() -> None:
     summarize_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
     summarize_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
 
+    # Citations Command
+    citations_parser = subparsers.add_parser(
+        "citations", help="Perform RRF search and get answer with citations"
+    )
+    citations_parser.add_argument("query", type=str, help="Search query for citations")
+    citations_parser.add_argument("--limit", type=int, default=5, help="Maximum number of search results to return")
+    citations_parser.add_argument("--k", type=int, default=60, help="RRF parameter")
+    citations_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
+    citations_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
+
     args = parser.parse_args()
 
     match args.command:
@@ -198,6 +208,95 @@ Please provide a concise summary of these movies.
 
             print("LLM Summary:")
             print(summary)
+
+        case "citations":
+            query = args.query
+            
+            # 1. Load movies
+            try:
+                with open(args.data_file, "r", encoding="utf-8") as f:
+                    movies_data = json.load(f)
+            except FileNotFoundError:
+                print(f"Error: Data file '{args.data_file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            except json.JSONDecodeError:
+                print(f"Error: Data file '{args.data_file}' is not valid JSON.", file=sys.stderr)
+                sys.exit(1)
+
+            movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
+
+            # 2. Run RRF search using HybridSearch
+            hybrid_search = HybridSearch(movies, index_dir=args.save_dir)
+            results = hybrid_search.rrf_search(query, k=args.k, limit=args.limit)
+
+            # 3. Print retrieved Search Results titles (indented with 2 spaces)
+            print("Search Results:")
+            for res in results:
+                print(f"  - {res['document'].get('title')}")
+            print()
+
+            # 4. Initialize LLM client
+            # Resolve the absolute path to the workspace .env file
+            cli_dir = os.path.dirname(os.path.abspath(__file__))
+            dotenv_path = os.path.join(os.path.dirname(cli_dir), '.env')
+            load_dotenv(dotenv_path, override=True)
+
+            openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+            hf_token = os.environ.get("HF_ACCESS_TOKEN") or os.environ.get("HF_TOKEN")
+
+            if openrouter_key:
+                client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=openrouter_key,
+                )
+                model = "openrouter/free"
+            elif hf_token:
+                client = OpenAI(
+                    base_url="https://router.huggingface.co/v1",
+                    api_key=hf_token,
+                )
+                model = os.environ.get("HF_RERANK_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+            else:
+                raise RuntimeError("Neither OPENROUTER_API_KEY nor HF_ACCESS_TOKEN is set in environment")
+
+            # 5. Build prompt with cited documents
+            doc_strings = []
+            for i, res in enumerate(results, 1):
+                doc = res["document"]
+                doc_strings.append(f"[{i}] Title: {doc.get('title')}\nDescription: {doc.get('description', '') or doc.get('document', '')}")
+            documents_str = "\n\n".join(doc_strings)
+
+            user_prompt = f"""Answer the query below and give information based on the provided documents.
+
+The answer should be tailored to users of Hoopla, a movie streaming service.
+If not enough information is available to provide a good answer, say so, but give the best answer possible while citing the sources available.
+
+Query: {query}
+
+Documents:
+{documents_str}
+
+Instructions:
+- Provide a comprehensive answer that addresses the query
+- Cite sources in the format [1], [2], etc. when referencing information
+- If sources disagree, mention the different viewpoints
+- If the answer isn't in the provided documents, say "I don't have enough information"
+- Be direct and informative
+
+Answer:"""
+
+            # 6. Generate answer using LLM
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+            )
+            answer = response.choices[0].message.content.strip()
+
+            print("LLM Answer:")
+            print(answer)
 
         case _:
             parser.print_help()
