@@ -48,6 +48,16 @@ def main() -> None:
     citations_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
     citations_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
 
+    # Question Command
+    question_parser = subparsers.add_parser(
+        "question", help="Perform RRF search and answer a question"
+    )
+    question_parser.add_argument("question", type=str, help="Question to answer")
+    question_parser.add_argument("--limit", type=int, default=5, help="Maximum number of search results to return")
+    question_parser.add_argument("--k", type=int, default=60, help="RRF parameter")
+    question_parser.add_argument("--data_file", nargs="?", default="data/movies.json", help="Path to the movie dataset JSON")
+    question_parser.add_argument("--save_dir", nargs="?", default="cache", help="Directory containing index/embeddings")
+
     args = parser.parse_args()
 
     match args.command:
@@ -296,6 +306,86 @@ Answer:"""
             answer = response.choices[0].message.content.strip()
 
             print("LLM Answer:")
+            print(answer)
+
+        case "question":
+            question = args.question
+            
+            # 1. Load movies
+            try:
+                with open(args.data_file, "r", encoding="utf-8") as f:
+                    movies_data = json.load(f)
+            except FileNotFoundError:
+                print(f"Error: Data file '{args.data_file}' not found.", file=sys.stderr)
+                sys.exit(1)
+            except json.JSONDecodeError:
+                print(f"Error: Data file '{args.data_file}' is not valid JSON.", file=sys.stderr)
+                sys.exit(1)
+
+            movies = movies_data.get("movies", []) if isinstance(movies_data, dict) else movies_data
+
+            # 2. Run RRF search using HybridSearch
+            hybrid_search = HybridSearch(movies, index_dir=args.save_dir)
+            results = hybrid_search.rrf_search(question, k=args.k, limit=args.limit)
+
+            # 3. Print retrieved Search Results titles (indented with 2 spaces)
+            print("Search Results:")
+            for res in results:
+                print(f"  - {res['document'].get('title')}")
+            print()
+
+            # 4. Initialize LLM client
+            # Resolve the absolute path to the workspace .env file
+            cli_dir = os.path.dirname(os.path.abspath(__file__))
+            dotenv_path = os.path.join(os.path.dirname(cli_dir), '.env')
+            load_dotenv(dotenv_path, override=True)
+
+            openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+            hf_token = os.environ.get("HF_ACCESS_TOKEN") or os.environ.get("HF_TOKEN")
+
+            if openrouter_key:
+                client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=openrouter_key,
+                )
+                model = "openrouter/free"
+            elif hf_token:
+                client = OpenAI(
+                    base_url="https://router.huggingface.co/v1",
+                    api_key=hf_token,
+                )
+                model = os.environ.get("HF_RERANK_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+            else:
+                raise RuntimeError("Neither OPENROUTER_API_KEY nor HF_ACCESS_TOKEN is set in environment")
+
+            # 5. Build prompt
+            context_list = []
+            for res in results:
+                doc = res["document"]
+                context_list.append(f"Title: {doc.get('title')}\nDescription: {doc.get('description', '') or doc.get('document', '')}")
+            movies_context = "\n\n".join(context_list)
+
+            system_prompt = "You are a helpful assistant that answers questions based on a retrieved set of movies. Answer the question concisely using the provided context."
+            user_prompt = f"""Question: {question}
+
+Retrieved Movies:
+{movies_context}
+
+Please generate an answer to the question based on these movies.
+"""
+
+            # 6. Generate answer using LLM
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+            )
+            answer = response.choices[0].message.content.strip()
+
+            print("Answer:")
             print(answer)
 
         case _:

@@ -248,5 +248,76 @@ class TestAugmentedGeneration(unittest.TestCase):
         self.assertIn("[1] Title: We're Back! A Dinosaur's Story", messages[0]["content"])
         self.assertIn("[2] Title: Jurassic Park", messages[0]["content"])
 
+    @patch("cli.augmented_generation_cli.OpenAI")
+    @patch("cli.augmented_generation_cli.HybridSearch")
+    @patch("builtins.open")
+    @patch("cli.augmented_generation_cli.load_dotenv")
+    @patch("os.environ.get")
+    @patch("sys.argv")
+    def test_question_command_flow(self, mock_argv, mock_env_get, mock_load_dotenv, mock_open, mock_hybrid_search_class, mock_openai):
+        # Configure arguments
+        mock_argv.__getitem__.side_effect = lambda x: ["cli/augmented_generation_cli.py", "question", "dinosaur?"][x]
+        mock_argv.__len__.return_value = 3
+
+        # Mock env vars
+        mock_env_get.side_effect = lambda key, default=None: {
+            "OPENROUTER_API_KEY": "fake_key",
+            "HF_ACCESS_TOKEN": None,
+            "HF_TOKEN": None,
+        }.get(key, default)
+
+        # Mock movies dataset load
+        mock_file = MagicMock()
+        mock_file.__enter__.return_value = mock_file
+        mock_file.read.return_value = json.dumps({"movies": self.movies})
+        mock_open.return_value = mock_file
+
+        # Mock HybridSearch
+        mock_hybrid_search_instance = MagicMock()
+        mock_hybrid_search_instance.rrf_search.return_value = [
+            {"document": self.movies[0]},
+            {"document": self.movies[1]},
+            {"document": self.movies[2]},
+            {"document": self.movies[3]},
+            {"document": self.movies[4]}
+        ]
+        mock_hybrid_search_class.return_value = mock_hybrid_search_instance
+
+        # Mock OpenAI chat completion
+        mock_openai_instance = MagicMock()
+        mock_chat = MagicMock()
+        mock_completion = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock()
+        
+        mock_message.content = "This is the answer."
+        mock_choice.message = mock_message
+        mock_completion.choices = [mock_choice]
+        mock_chat.completions.create.return_value = mock_completion
+        mock_openai_instance.chat = mock_chat
+        mock_openai.return_value = mock_openai_instance
+
+        # Capture output
+        captured_output = StringIO()
+        with patch("sys.stdout", captured_output):
+            main()
+
+        output_str = captured_output.getvalue()
+        
+        # Verify stdout format
+        self.assertIn("Search Results:", output_str)
+        self.assertIn("  - Jurassic Park", output_str)
+        self.assertIn("Answer:", output_str)
+        self.assertIn("This is the answer.", output_str)
+
+        # Verify correct prompt structure
+        args, kwargs = mock_chat.completions.create.call_args
+        messages = kwargs["messages"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertEqual(messages[1]["role"], "user")
+        self.assertIn("Question: dinosaur?", messages[1]["content"])
+        self.assertIn("Jurassic Park", messages[1]["content"])
+
 if __name__ == "__main__":
     unittest.main()
